@@ -16,6 +16,11 @@ final class TerminalLauncherTests: XCTestCase {
       [
         "--working-directory=/tmp/project with spaces",
         "-e",
+        "/usr/bin/env",
+        "-C",
+        "/tmp/project with spaces",
+        "--",
+        "PWD=/tmp/project with spaces",
         "/Users/test/.local/bin/claude",
       ]
     )

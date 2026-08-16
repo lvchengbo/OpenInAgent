@@ -3,17 +3,17 @@ import Foundation
 import SwiftUI
 
 @MainActor
-final class AgentMenuController: NSObject, NSApplicationDelegate {
+final class AgentMenuController: NSObject {
   static let presentationDelay: TimeInterval = 0.03
   static let panelWidth: CGFloat = 300
 
   private let agents: [ResolvedAgent]
   private let workingDirectory: URL
   private let anchorPoint: NSPoint
-  private var selectedAgent: ResolvedAgent?
   private var panel: AgentChooserPanel?
   private var globalClickMonitor: Any?
   private var localKeyMonitor: Any?
+  private var continuation: CheckedContinuation<ResolvedAgent?, Never>?
   private var hasCompleted = false
 
   init(
@@ -26,25 +26,17 @@ final class AgentMenuController: NSObject, NSApplicationDelegate {
     self.anchorPoint = anchorPoint
   }
 
-  func chooseAgent() -> ResolvedAgent? {
-    let application = NSApplication.shared
-    application.setActivationPolicy(.accessory)
-    application.delegate = self
-    application.run()
-
-    tearDownPresentation()
-    if application.delegate === self {
-      application.delegate = nil
-    }
-    return selectedAgent
-  }
-
-  func applicationDidFinishLaunching(_ notification: Notification) {
+  func chooseAgent() async -> ResolvedAgent? {
+    precondition(continuation == nil, "Agent chooser is already active")
     NSApp.activate(ignoringOtherApps: true)
-    DispatchQueue.main.asyncAfter(
-      deadline: .now() + Self.presentationDelay
-    ) { [weak self] in
-      self?.showPanel()
+
+    return await withCheckedContinuation { continuation in
+      self.continuation = continuation
+      DispatchQueue.main.asyncAfter(
+        deadline: .now() + Self.presentationDelay
+      ) { [weak self] in
+        self?.showPanel()
+      }
     }
   }
 
@@ -187,23 +179,9 @@ final class AgentMenuController: NSObject, NSApplicationDelegate {
   private func complete(with agent: ResolvedAgent?) {
     guard !hasCompleted else { return }
     hasCompleted = true
-    selectedAgent = agent
     tearDownPresentation()
-    NSApp.stop(nil)
-
-    if let wakeEvent = NSEvent.otherEvent(
-      with: .applicationDefined,
-      location: .zero,
-      modifierFlags: [],
-      timestamp: 0,
-      windowNumber: 0,
-      context: nil,
-      subtype: 0,
-      data1: 0,
-      data2: 0
-    ) {
-      NSApp.postEvent(wakeEvent, atStart: false)
-    }
+    continuation?.resume(returning: agent)
+    continuation = nil
   }
 
   private func tearDownPresentation() {

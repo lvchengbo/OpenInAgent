@@ -1,13 +1,14 @@
 import AppKit
 import Darwin
+import FinderSync
 import Foundation
 
 @main
 private enum OpenInAgentApplication {
   @MainActor
-  static func main() async {
-    _ = NSApplication.shared
-    NSApp.setActivationPolicy(.accessory)
+  static func main() {
+    let application = NSApplication.shared
+    application.setActivationPolicy(.accessory)
 
     if Diagnostics.isRequested() {
       let entries = Diagnostics.liveEntries()
@@ -15,21 +16,77 @@ private enum OpenInAgentApplication {
       exit(entries.allSatisfy(\.isReady) ? 0 : 1)
     }
 
+    let coordinator = ApplicationCoordinator()
+    application.delegate = coordinator
+    withExtendedLifetime(coordinator) {
+      application.run()
+    }
+    exit(coordinator.exitStatus)
+  }
+}
+
+@MainActor
+final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
+  private(set) var exitStatus: Int32 = 0
+  private var launchTask: Task<Void, Never>?
+  private var menuController: AgentMenuController?
+  private var launchState = ApplicationLaunchState()
+
+  func applicationDidFinishLaunching(_ notification: Notification) {
+    let isDefaultLaunch =
+      notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey]
+      as? Bool ?? true
+    handle(
+      launchState.didFinishLaunching(isDefaultLaunch: isDefaultLaunch)
+    )
+  }
+
+  func application(_ application: NSApplication, open urls: [URL]) {
+    handle(launchState.receive(urls: urls))
+  }
+
+  private func handle(_ decision: ApplicationLaunchDecision?) {
+    switch decision {
+    case .launch(let activationURL):
+      start(activationURL: activationURL)
+    case .rejectInvalidRequest:
+      failInvalidRequest()
+    case nil:
+      break
+    }
+  }
+
+  private func start(activationURL: URL?) {
+    guard launchTask == nil else { return }
+    launchTask = Task { @MainActor [weak self] in
+      await self?.run(activationURL: activationURL)
+    }
+  }
+
+  private func run(activationURL: URL?) async {
+    let request: AgentLaunchRequest?
+    if let activationURL {
+      do {
+        request = try AgentHandoffStore.containingApplication().consume(
+          activationURL
+        )
+      } catch {
+        finish(status: 4)
+        return
+      }
+    } else {
+      request = nil
+    }
+
     let finderURL: URL
-    if let launchURL = FinderSelection.urlFromLaunchArguments() {
+    if let request {
+      finderURL = request.targetURL
+    } else if let launchURL = FinderSelection.urlFromLaunchArguments() {
       finderURL = launchURL
     } else {
-      switch await FinderSelection.resolveURL() {
-      case .success(let url):
-        finderURL = url
-      case .failure(let error):
-        presentError(
-          title: "Couldn’t read the Finder selection",
-          message: error.localizedDescription,
-          offersAutomationSettings: error == .automationDenied
-        )
-        exit(1)
-      }
+      presentSetup()
+      finish(status: 0)
+      return
     }
 
     guard
@@ -41,17 +98,39 @@ private enum OpenInAgentApplication {
         title: "The selected item isn’t available",
         message: "Choose an accessible local file or folder and try again."
       )
-      exit(2)
+      finish(status: 2)
+      return
     }
 
     let agents = ExecutableResolver.resolveAll()
-    let menuController = AgentMenuController(
-      agents: agents,
-      workingDirectory: workingDirectory
-    )
-
-    guard let selectedAgent = menuController.chooseAgent() else {
-      exit(0)
+    let selectedAgent: ResolvedAgent
+    if let request {
+      guard
+        let requestedAgent = agents.first(where: {
+          $0.specification.id == request.agentID
+        })
+      else {
+        presentError(
+          title: "The requested agent isn’t available",
+          message: "Open in Agent could not match the Finder menu selection."
+        )
+        finish(status: 2)
+        return
+      }
+      selectedAgent = requestedAgent
+    } else {
+      let menuController = AgentMenuController(
+        agents: agents,
+        workingDirectory: workingDirectory
+      )
+      self.menuController = menuController
+      guard let choice = await menuController.chooseAgent() else {
+        self.menuController = nil
+        finish(status: 0)
+        return
+      }
+      self.menuController = nil
+      selectedAgent = choice
     }
 
     do {
@@ -59,7 +138,7 @@ private enum OpenInAgentApplication {
         selectedAgent,
         workingDirectory: workingDirectory
       )
-      exit(0)
+      finish(status: 0)
     } catch {
       let launchError = error as? TerminalLauncherError
       presentError(
@@ -70,17 +149,39 @@ private enum OpenInAgentApplication {
           return false
         }()
       )
-      exit(3)
+      finish(status: 3)
     }
   }
 
-  @MainActor
-  private static func presentError(
+  private func failInvalidRequest() {
+    guard launchTask == nil else { return }
+    finish(status: 4)
+  }
+
+  private func finish(status: Int32) {
+    exitStatus = status
+    NSApp.stop(nil)
+
+    if let wakeEvent = NSEvent.otherEvent(
+      with: .applicationDefined,
+      location: .zero,
+      modifierFlags: [],
+      timestamp: 0,
+      windowNumber: 0,
+      context: nil,
+      subtype: 0,
+      data1: 0,
+      data2: 0
+    ) {
+      NSApp.postEvent(wakeEvent, atStart: false)
+    }
+  }
+
+  private func presentError(
     title: String,
     message: String,
     offersAutomationSettings: Bool = false
   ) {
-    NSApp.setActivationPolicy(.accessory)
     NSApp.activate(ignoringOtherApps: true)
 
     let alert = NSAlert()
@@ -100,6 +201,39 @@ private enum OpenInAgentApplication {
       )
     {
       NSWorkspace.shared.open(settingsURL)
+    }
+  }
+
+  private func presentSetup() {
+    NSApp.activate(ignoringOtherApps: true)
+
+    let extensionIsEnabled = FIFinderSyncController.isExtensionEnabled
+    let alert = NSAlert()
+    alert.alertStyle = .informational
+    alert.messageText =
+      extensionIsEnabled
+      ? "Open in Agent is ready"
+      : "Enable Open in Agent for Finder"
+    alert.informativeText =
+      extensionIsEnabled
+      ? "In Finder, choose View → Customize Toolbar, then drag the Open in Agent item into the toolbar. Command-drag the old app shortcut out of the toolbar."
+      : "Enable the Finder extension, then add Open in Agent from Finder’s View → Customize Toolbar sheet."
+    alert.addButton(
+      withTitle: extensionIsEnabled ? "OK" : "Open Extension Settings"
+    )
+    if extensionIsEnabled {
+      alert.addButton(withTitle: "Open Extension Settings")
+    } else {
+      alert.addButton(withTitle: "Cancel")
+    }
+
+    let response = alert.runModal()
+    let shouldOpenSettings =
+      extensionIsEnabled
+      ? response == .alertSecondButtonReturn
+      : response == .alertFirstButtonReturn
+    if shouldOpenSettings {
+      FIFinderSyncController.showExtensionManagementInterface()
     }
   }
 }

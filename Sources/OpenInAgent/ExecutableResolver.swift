@@ -29,9 +29,9 @@ enum ExecutableResolver {
       $0.appendingPathComponent(specification.executableName).standardizedFileURL
     }
 
-    let executableURL = (preferred + fallback).first {
-      isExecutableRegularFile($0, fileManager: fileManager)
-    }
+    let executableURL = (preferred + fallback).lazy.compactMap {
+      canonicalExecutableURL($0, fileManager: fileManager)
+    }.first
 
     return ResolvedAgent(
       specification: specification,
@@ -43,13 +43,13 @@ enum ExecutableResolver {
     AgentCatalog.all.map { resolve($0) }
   }
 
-  private static func isExecutableRegularFile(
+  private static func canonicalExecutableURL(
     _ url: URL,
     fileManager: FileManager
-  ) -> Bool {
-    guard fileManager.isExecutableFile(atPath: url.path) else { return false }
+  ) -> URL? {
     let target = url.resolvingSymlinksInPath()
+    guard fileManager.isExecutableFile(atPath: target.path) else { return nil }
     let values = try? target.resourceValues(forKeys: [.isRegularFileKey])
-    return values?.isRegularFile == true
+    return values?.isRegularFile == true ? target : nil
   }
 }

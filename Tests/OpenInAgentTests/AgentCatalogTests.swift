@@ -81,4 +81,40 @@ final class AgentCatalogTests: XCTestCase {
       ).executableURL
     )
   }
+
+  func testExecutableResolverReturnsCanonicalSymlinkTarget() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let version = root.appendingPathComponent("versions/claude-1")
+    let link = root.appendingPathComponent(".local/bin/claude")
+    try FileManager.default.createDirectory(
+      at: version.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+      at: link.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try Data("#!/bin/sh\n".utf8).write(to: version)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o755],
+      ofItemAtPath: version.path
+    )
+    try FileManager.default.createSymbolicLink(
+      at: link,
+      withDestinationURL: version
+    )
+
+    let claude = try XCTUnwrap(
+      AgentCatalog.all.first { $0.id == .claude }
+    )
+    let resolved = ExecutableResolver.resolve(
+      claude,
+      homeDirectory: root
+    )
+
+    XCTAssertEqual(resolved.executableURL, version.standardizedFileURL)
+  }
 }

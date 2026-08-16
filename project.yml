@@ -1,0 +1,78 @@
+name: OpenInAgent
+
+options:
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "13.0"
+  generateEmptyDirectories: false
+  groupSortPosition: top
+  minimumXcodeGenVersion: 2.44.0
+
+settings:
+  base:
+    CLANG_ENABLE_MODULES: YES
+    COPY_PHASE_STRIP: NO
+    ENABLE_HARDENED_RUNTIME: YES
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    SWIFT_VERSION: "6.0"
+
+targets:
+  OpenInAgent:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/OpenInAgent
+      - path: English.lproj/InfoPlist.strings
+        buildPhase: resources
+    dependencies:
+      - target: OpenInAgentFinderExtension
+        embed: true
+      - sdk: FinderSync.framework
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: OpenInAgent.entitlements
+        CURRENT_PROJECT_VERSION: "2"
+        ENABLE_APP_SANDBOX: NO
+        EXECUTABLE_NAME: Open in Agent
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Info.plist
+        MARKETING_VERSION: 0.2.0
+        PRODUCT_BUNDLE_IDENTIFIER: com.lvchengbo.openinagent
+        PRODUCT_NAME: Open in Agent
+
+  OpenInAgentFinderExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Sources/OpenInAgentFinderExtension
+      - path: Sources/OpenInAgent/Agent.swift
+      - path: Sources/OpenInAgent/AgentLaunchRequest.swift
+      - path: Sources/OpenInAgent/AgentHandoffStore.swift
+    dependencies:
+      - sdk: AppKit.framework
+      - sdk: FinderSync.framework
+    settings:
+      base:
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_ENTITLEMENTS: FinderExtension/OpenInAgentFinderExtension.entitlements
+        CURRENT_PROJECT_VERSION: "2"
+        ENABLE_APP_SANDBOX: YES
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: FinderExtension/Info.plist
+        MARKETING_VERSION: 0.2.0
+        PRODUCT_BUNDLE_IDENTIFIER: com.lvchengbo.openinagent.finderextension
+        PRODUCT_MODULE_NAME: OpenInAgentFinderExtension
+        PRODUCT_NAME: OpenInAgentFinderExtension
+        SKIP_INSTALL: YES
+
+schemes:
+  OpenInAgent:
+    build:
+      targets:
+        OpenInAgent: all
+    run:
+      config: Debug
+    archive:
+      config: Release

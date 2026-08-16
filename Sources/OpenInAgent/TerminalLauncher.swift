@@ -122,6 +122,11 @@ enum TerminalLauncher {
     [
       "--working-directory=\(workingDirectory.path)",
       "-e",
+      "/usr/bin/env",
+      "-C",
+      workingDirectory.path,
+      "--",
+      "PWD=\(workingDirectory.path)",
       executableURL.path,
     ] + arguments
   }
