@@ -1,0 +1,2 @@
+"CFBundleDisplayName" = "Open in Agent";
+"NSAppleEventsUsageDescription" = "Open in Agent reads the selected Finder item and asks iTerm to open your chosen command-line agent there.";
