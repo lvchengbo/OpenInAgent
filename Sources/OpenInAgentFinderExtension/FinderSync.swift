@@ -87,7 +87,6 @@ final class FinderSync: FIFinderSync {
       menu.addItem(item)
     }
 
-    menu.addItem(.separator())
     let copyPathItem = NSMenuItem(
       title: "Copy Path",
       action: #selector(copyPath(_:)),
