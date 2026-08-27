@@ -1,8 +1,8 @@
 # OpenInAgent
 
-OpenInAgent is a small macOS utility that adds a native AI-agent menu to
-Finder’s toolbar. Select a file or folder, click the monochrome toolbar button,
-and launch the matching CLI in its preferred terminal.
+OpenInAgent is a small macOS utility that adds two native controls to Finder’s
+toolbar: an AI-agent menu and a separate Copy Path button. Select a file or
+folder to launch the matching CLI or copy its full POSIX path.
 
 | Menu item | Terminal | Command |
 |---|---|---|
@@ -21,10 +21,12 @@ Command-dragging an application into Finder creates a generic file shortcut.
 Finder therefore shows the colored app icon and literal bundle filename, and
 the shortcut cannot own a native dropdown menu.
 
-OpenInAgent instead embeds a sandboxed Finder Sync extension. Finder renders
-its 23-point template icon, hover state, spacing, label, and four-item `NSMenu`
-like a native toolbar control. The extension only captures the selected URL and
-agent choice; the short-lived containing app performs terminal launching.
+OpenInAgent instead embeds two sandboxed Finder Sync extensions. Finder renders
+their 23-point template icons, hover states, spacing, labels, and native menus.
+The Open in Agent extension captures the selected URL and agent choice; the
+short-lived containing app performs terminal launching. The independent Copy
+Path extension writes the selected item—or current Finder directory when
+nothing is selected—to the clipboard.
 
 ## Build and verify
 
@@ -43,7 +45,7 @@ cd /Users/joker/Projects/OpenInAgent
 ./scripts/verify.sh
 ```
 
-The built containing app, including its embedded Finder extension, is written
+The built containing app, including both embedded Finder extensions, is written
 to:
 
 ```text
@@ -62,11 +64,11 @@ Install a stable copy in `~/Applications`:
 `verify.sh`. Omit the flag when you want the installer to build from source
 first.
 
-For this personal local installation, the installer registers and enables the
-embedded Finder extension with `pluginkit`. On upgrade it stages and verifies
+For this personal local installation, the installer registers and enables both
+embedded Finder extensions with `pluginkit`. On upgrade it stages and verifies
 the complete signed bundle before replacing the canonical install path, cycles
-the running extension, and rejects duplicate registrations. Backups live under
-`~/Library/Application Support/OpenInAgent/Backups` with a non-app suffix.
+the running extensions, and rejects duplicate registrations. Backups live
+under `~/Library/Application Support/OpenInAgent/Backups` with a non-app suffix.
 
 Confirm the installed backend can see all four commands and both terminals
 without opening an agent:
@@ -80,12 +82,13 @@ Then configure Finder once:
 1. Command-drag the old purple **Open in Agent.app** shortcut out of Finder’s
    toolbar, if it is still present.
 2. In Finder, choose **View → Customize Toolbar…**.
-3. Drag the native **Open in Agent** item into the toolbar and click **Done**.
-4. Select a project folder or a file inside one, click the new toolbar button,
-   and choose an agent.
+3. Drag the native **Open in Agent** and **Copy Path** items into the toolbar,
+   then click **Done**.
+4. Select a project folder or a file inside one. Use **Open in Agent** to choose
+   an agent, or **Copy Path** to copy the selected path.
 
-If the native item is missing, open the containing app once and choose
-**Open Extension Settings**, then enable its Finder extension. The first iTerm
+If either native item is missing, open the containing app once and choose
+**Open Extension Settings**, then enable both Finder extensions. The first iTerm
 launch may ask permission to control iTerm under System Settings → Privacy &
 Security → Automation. Finder access itself does not require an Automation
 prompt because Finder supplies the selection to its extension.
@@ -93,7 +96,7 @@ prompt because Finder supplies the selection to its extension.
 ### Signing upgrades
 
 Local builds use matching ad-hoc hardened-runtime signatures for the containing
-app and embedded extension. The utility is fully usable on this Mac, but macOS
+app and embedded extensions. The utility is fully usable on this Mac, but macOS
 may ask for iTerm Automation permission again after a rebuild because an ad-hoc
 identity is tied to that exact binary.
 
@@ -113,8 +116,8 @@ repository targets a personal local installation rather than App Store review.
 
 ## Security model
 
-- The Finder extension is sandboxed and never invokes a shell, AppleScript, or
-  terminal.
+- Both Finder extensions are sandboxed and never invoke a shell, AppleScript,
+  or terminal.
 - The extension writes a short-lived, owner-only request into its private
   sandbox container. Its activation URL carries only a random one-time UUID;
   the backend atomically consumes the record and rejects replay, stale data,
@@ -135,13 +138,15 @@ See [SECURITY.md](SECURITY.md) for the detailed boundaries.
 ```text
 Sources/OpenInAgent/                 One-shot host and terminal launchers
 Sources/OpenInAgentFinderExtension/  Native Finder toolbar/menu extension
+Sources/CopyPathFinderExtension/     Independent Copy Path toolbar extension
 FinderExtension/                     Extension plist and sandbox entitlement
+CopyPathFinderExtension/             Copy Path extension plist
 Tests/OpenInAgentTests/              Routing, lifecycle, and adversarial tests
 project.yml                          Reproducible XcodeGen project definition
 OpenInAgent.xcodeproj/               Generated Xcode project used for builds
 OpenInAgent.icon/                    Original containing-app icon definition
-scripts/build-app.sh                 App + extension packaging and signing
-scripts/install.sh                   Stable install and extension registration
+scripts/build-app.sh                 App + extensions packaging and signing
+scripts/install.sh                   Stable install and extension registrations
 scripts/verify.sh                    Full automated verification
 ```
 

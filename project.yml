@@ -29,6 +29,8 @@ targets:
     dependencies:
       - target: OpenInAgentFinderExtension
         embed: true
+      - target: CopyPathFinderExtension
+        embed: true
       - sdk: FinderSync.framework
     settings:
       base:
@@ -65,6 +67,28 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.lvchengbo.openinagent.finderextension
         PRODUCT_MODULE_NAME: OpenInAgentFinderExtension
         PRODUCT_NAME: OpenInAgentFinderExtension
+        SKIP_INSTALL: YES
+
+  CopyPathFinderExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Sources/CopyPathFinderExtension
+    dependencies:
+      - sdk: AppKit.framework
+      - sdk: FinderSync.framework
+    settings:
+      base:
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_ENTITLEMENTS: FinderExtension/OpenInAgentFinderExtension.entitlements
+        CURRENT_PROJECT_VERSION: "2"
+        ENABLE_APP_SANDBOX: YES
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: CopyPathFinderExtension/Info.plist
+        MARKETING_VERSION: 0.2.0
+        PRODUCT_BUNDLE_IDENTIFIER: com.lvchengbo.openinagent.copypath.finderextension
+        PRODUCT_MODULE_NAME: CopyPathFinderExtension
+        PRODUCT_NAME: CopyPathFinderExtension
         SKIP_INSTALL: YES
 
 schemes:

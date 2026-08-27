@@ -207,32 +207,16 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
   private func presentSetup() {
     NSApp.activate(ignoringOtherApps: true)
 
-    let extensionIsEnabled = FIFinderSyncController.isExtensionEnabled
     let alert = NSAlert()
     alert.alertStyle = .informational
-    alert.messageText =
-      extensionIsEnabled
-      ? "Open in Agent is ready"
-      : "Enable Open in Agent for Finder"
+    alert.messageText = "Configure the Finder toolbar"
     alert.informativeText =
-      extensionIsEnabled
-      ? "In Finder, choose View → Customize Toolbar, then drag the Open in Agent item into the toolbar. Command-drag the old app shortcut out of the toolbar."
-      : "Enable the Finder extension, then add Open in Agent from Finder’s View → Customize Toolbar sheet."
-    alert.addButton(
-      withTitle: extensionIsEnabled ? "OK" : "Open Extension Settings"
-    )
-    if extensionIsEnabled {
-      alert.addButton(withTitle: "Open Extension Settings")
-    } else {
-      alert.addButton(withTitle: "Cancel")
-    }
+      "Enable both Finder extensions in System Settings. Then, in Finder, choose View → Customize Toolbar and add Open in Agent and Copy Path. Command-drag the old app shortcut out of the toolbar."
+    alert.addButton(withTitle: "Open Extension Settings")
+    alert.addButton(withTitle: "Cancel")
 
     let response = alert.runModal()
-    let shouldOpenSettings =
-      extensionIsEnabled
-      ? response == .alertSecondButtonReturn
-      : response == .alertFirstButtonReturn
-    if shouldOpenSettings {
+    if response == .alertFirstButtonReturn {
       FIFinderSyncController.showExtensionManagementInterface()
     }
   }

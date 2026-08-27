@@ -7,10 +7,12 @@ input. Legal macOS filenames can contain spaces, quotes, backticks, shell
 metacharacters, and newlines, so no selected path may become executable source
 text.
 
-The Finder Sync extension is App-Sandboxed. It reads the current Finder
-selection only while Finder is constructing its menu or invoking a menu action,
-then sends a strictly structured request to the containing app. It does not
-resolve commands, run processes, use Apple Events, or launch a terminal.
+Both Finder Sync extensions are App-Sandboxed. They read the current Finder
+selection only while Finder is constructing a menu or invoking a menu action.
+The Agent extension sends a strictly structured request to the containing app;
+the Copy Path extension writes only the selected local POSIX path to the system
+clipboard. Neither extension resolves commands, runs processes, uses Apple
+Events, or launches a terminal.
 
 The short-lived containing app is intentionally not App-Sandboxed because it
 launches locally installed command-line tools. It requests Apple Events access
@@ -92,7 +94,7 @@ routes the command through a POSIX shell.
 - automatic permission-bypass flags
 - Finder preference mutation
 - force-restarting Finder
-- process, shell, or AppleScript execution inside the Finder extension
+- process, shell, or AppleScript execution inside either Finder extension
 
 `scripts/verify.sh` rejects these patterns in production Swift sources. Unit
 tests round-trip adversarial values through the private handoff record, iTerm
@@ -109,8 +111,8 @@ and requires an executable regular file. The launching process’s inherited
 code-signing requirements, so software substitution within those configured
 locations remains a user-installation risk.
 
-The containing app and embedded extension are signed inside-out with the same
-identity. Local builds use ad-hoc signing, so iTerm Automation consent may need
-to be granted again after rebuilding. `scripts/build-app.sh` supports a stable
-identity through `OPEN_IN_AGENT_SIGNING=identity`; public distribution still
-requires Developer ID signing and notarization.
+The containing app and both embedded extensions are signed inside-out with the
+same identity. Local builds use ad-hoc signing, so iTerm Automation consent may
+need to be granted again after rebuilding. `scripts/build-app.sh` supports a
+stable identity through `OPEN_IN_AGENT_SIGNING=identity`; public distribution
+still requires Developer ID signing and notarization.

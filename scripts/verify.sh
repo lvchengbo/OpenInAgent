@@ -5,6 +5,8 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 app="$repo_root/.build/app/Open in Agent.app"
 extension="$app/Contents/PlugIns/OpenInAgentFinderExtension.appex"
 extension_executable="$extension/Contents/MacOS/OpenInAgentFinderExtension"
+copy_path_extension="$app/Contents/PlugIns/CopyPathFinderExtension.appex"
+copy_path_extension_executable="$copy_path_extension/Contents/MacOS/CopyPathFinderExtension"
 signing_mode="${OPEN_IN_AGENT_SIGNING:-adhoc}"
 
 bash -n \
@@ -32,6 +34,7 @@ swift test --package-path "$repo_root" --parallel \
 
 plutil -lint "$app/Contents/Info.plist"
 plutil -lint "$extension/Contents/Info.plist"
+plutil -lint "$copy_path_extension/Contents/Info.plist"
 
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == "com.lvchengbo.openinagent" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$app/Contents/Info.plist")" == "true" ]]
@@ -39,9 +42,13 @@ plutil -lint "$extension/Contents/Info.plist"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$extension/Contents/Info.plist")" == "com.lvchengbo.openinagent.finderextension" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$extension/Contents/Info.plist")" == "com.apple.FinderSync" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPrincipalClass' "$extension/Contents/Info.plist")" == "OpenInAgentFinderExtension.FinderSync" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copy_path_extension/Contents/Info.plist")" == "com.lvchengbo.openinagent.copypath.finderextension" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$copy_path_extension/Contents/Info.plist")" == "com.apple.FinderSync" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPrincipalClass' "$copy_path_extension/Contents/Info.plist")" == "CopyPathFinderExtension.FinderSync" ]]
 
 [[ -x "$app/Contents/MacOS/Open in Agent" ]]
 [[ -x "$extension_executable" ]]
+[[ -x "$copy_path_extension_executable" ]]
 [[ -f "$app/Contents/Resources/OpenInAgent.icns" ]]
 [[ -f "$app/Contents/Resources/LICENSE" ]]
 [[ -f "$app/Contents/Resources/THIRD_PARTY_NOTICES.md" ]]
@@ -51,18 +58,27 @@ plutil -lint "$extension/Contents/Info.plist"
 
 main_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
 extension_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$extension/Contents/Info.plist")"
+copy_path_extension_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$copy_path_extension/Contents/Info.plist")"
 main_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
 extension_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$extension/Contents/Info.plist")"
+copy_path_extension_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$copy_path_extension/Contents/Info.plist")"
 [[ "$main_version" == "$extension_version" ]]
+[[ "$main_version" == "$copy_path_extension_version" ]]
 [[ "$main_build" == "$extension_build" ]]
+[[ "$main_build" == "$copy_path_extension_build" ]]
 
 if [[ "$signing_mode" != "unsigned" && "$signing_mode" != "none" ]]; then
   codesign --verify --deep --strict --verbose=2 "$app"
   codesign --verify --strict --verbose=2 "$extension"
+  codesign --verify --strict --verbose=2 "$copy_path_extension"
 
   extension_sandbox="$(codesign -d --entitlements :- "$extension" 2>/dev/null \
     | plutil -extract 'com\.apple\.security\.app-sandbox' raw -o - -)"
   [[ "$extension_sandbox" == "true" ]]
+
+  copy_path_extension_sandbox="$(codesign -d --entitlements :- "$copy_path_extension" 2>/dev/null \
+    | plutil -extract 'com\.apple\.security\.app-sandbox' raw -o - -)"
+  [[ "$copy_path_extension_sandbox" == "true" ]]
 
   app_automation="$(codesign -d --entitlements :- "$app" 2>/dev/null \
     | plutil -extract 'com\.apple\.security\.automation\.apple-events' raw -o - -)"
@@ -78,16 +94,19 @@ fi
 
 if rg -n --glob '*.swift' \
   'NSAppleScript|osascript|Process\s*\(|/bin/(ba)?sh|/bin/zsh' \
-  "$repo_root/Sources/OpenInAgentFinderExtension"; then
+  "$repo_root/Sources/OpenInAgentFinderExtension" \
+  "$repo_root/Sources/CopyPathFinderExtension"; then
   echo "ERROR: shell or AppleScript usage found in Finder extension" >&2
   exit 1
 fi
 
 if rg -n 'representedObject' \
-  "$repo_root/Sources/OpenInAgentFinderExtension/FinderSync.swift"; then
+  "$repo_root/Sources/OpenInAgentFinderExtension/FinderSync.swift" \
+  "$repo_root/Sources/CopyPathFinderExtension/FinderSync.swift"; then
   echo "ERROR: Finder Sync does not preserve custom representedObject payloads" >&2
   exit 1
 fi
 
 echo "Verification passed: $app"
 echo "Finder extension verified: $extension"
+echo "Copy Path extension verified: $copy_path_extension"

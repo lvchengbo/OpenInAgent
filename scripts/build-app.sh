@@ -15,12 +15,15 @@ esac
 
 app_name="Open in Agent"
 extension_name="OpenInAgentFinderExtension"
+copy_path_extension_name="CopyPathFinderExtension"
 bundle_id="com.lvchengbo.openinagent"
 extension_bundle_id="$bundle_id.finderextension"
+copy_path_extension_bundle_id="$bundle_id.copypath.finderextension"
 build_root="$repo_root/.build/app"
 derived_data="$repo_root/.build/xcode"
 app_bundle="$build_root/$app_name.app"
 extension_bundle="$app_bundle/Contents/PlugIns/$extension_name.appex"
+copy_path_extension_bundle="$app_bundle/Contents/PlugIns/$copy_path_extension_name.appex"
 icon_source="$repo_root/OpenInAgent.icon/Assets/agent-spark.png"
 signing_mode="${OPEN_IN_AGENT_SIGNING:-adhoc}"
 signing_identity="${OPEN_IN_AGENT_SIGN_IDENTITY:-}"
@@ -122,6 +125,9 @@ sign_bundles() {
     --entitlements "$repo_root/FinderExtension/OpenInAgentFinderExtension.entitlements" \
     --sign "$identity" "$extension_bundle"
   codesign --force --options runtime --timestamp=none \
+    --entitlements "$repo_root/FinderExtension/OpenInAgentFinderExtension.entitlements" \
+    --sign "$identity" "$copy_path_extension_bundle"
+  codesign --force --options runtime --timestamp=none \
     --entitlements "$repo_root/OpenInAgent.entitlements" \
     --sign "$identity" "$app_bundle"
   codesign --verify --deep --strict --verbose=2 "$app_bundle"
@@ -158,6 +164,7 @@ if [[ ! -d "$built_app" ]]; then
   exit 1
 fi
 built_extension="$built_app/Contents/PlugIns/$extension_name.appex"
+built_copy_path_extension="$built_app/Contents/PlugIns/$copy_path_extension_name.appex"
 
 /usr/bin/ditto "$built_app" "$app_bundle"
 
@@ -165,13 +172,22 @@ if [[ ! -d "$extension_bundle" ]]; then
   echo "ERROR: Xcode did not embed $extension_bundle" >&2
   exit 1
 fi
+if [[ ! -d "$copy_path_extension_bundle" ]]; then
+  echo "ERROR: Xcode did not embed $copy_path_extension_bundle" >&2
+  exit 1
+fi
 
 stage_resources
 set_bundle_metadata "$app_bundle/Contents/Info.plist" "$bundle_id"
 set_bundle_metadata "$extension_bundle/Contents/Info.plist" "$extension_bundle_id"
+set_bundle_metadata \
+  "$copy_path_extension_bundle/Contents/Info.plist" \
+  "$copy_path_extension_bundle_id"
 
 verify_architectures "$app_bundle/Contents/MacOS/$app_name"
 verify_architectures "$extension_bundle/Contents/MacOS/$extension_name"
+verify_architectures \
+  "$copy_path_extension_bundle/Contents/MacOS/$copy_path_extension_name"
 
 case "$signing_mode" in
   unsigned|none)
@@ -197,12 +213,15 @@ esac
 echo "Built $app_bundle"
 echo "App architectures: $(lipo -archs "$app_bundle/Contents/MacOS/$app_name")"
 echo "Extension architectures: $(lipo -archs "$extension_bundle/Contents/MacOS/$extension_name")"
+echo "Copy Path extension architectures: $(lipo -archs "$copy_path_extension_bundle/Contents/MacOS/$copy_path_extension_name")"
 echo "Version: $marketing_version ($build_number)"
 
 # Xcode registers development products during a normal macOS build. Remove
 # those transient copies so Finder and URL dispatch see only the stable install.
 launch_services_register="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 /usr/bin/pluginkit -r "$built_extension" >/dev/null 2>&1 || true
+/usr/bin/pluginkit -r "$built_copy_path_extension" >/dev/null 2>&1 || true
 /usr/bin/pluginkit -r "$extension_bundle" >/dev/null 2>&1 || true
+/usr/bin/pluginkit -r "$copy_path_extension_bundle" >/dev/null 2>&1 || true
 "$launch_services_register" -u "$built_app" >/dev/null 2>&1 || true
 "$launch_services_register" -u "$app_bundle" >/dev/null 2>&1 || true

@@ -87,22 +87,6 @@ final class FinderSync: FIFinderSync {
       menu.addItem(item)
     }
 
-    let copyPathItem = NSMenuItem(
-      title: "Copy Path",
-      action: #selector(copyPath(_:)),
-      keyEquivalent: ""
-    )
-    copyPathItem.target = self
-    copyPathItem.isEnabled = targetURL?.isFileURL == true
-    if let image = NSImage(
-      systemSymbolName: "doc.on.doc",
-      accessibilityDescription: "Copy Path"
-    ) {
-      image.isTemplate = true
-      copyPathItem.image = image
-    }
-    menu.addItem(copyPathItem)
-
     if targetURL == nil {
       menu.addItem(.separator())
       let unavailableItem = NSMenuItem(
@@ -144,20 +128,6 @@ final class FinderSync: FIFinderSync {
 
   @objc private func openInAGY(_ sender: NSMenuItem) {
     openInAgent(.agy)
-  }
-
-  @objc private func copyPath(_ sender: NSMenuItem) {
-    guard let targetURL = currentTargetURL, targetURL.isFileURL else {
-      NSSound.beep()
-      return
-    }
-
-    let pasteboard = NSPasteboard.general
-    pasteboard.clearContents()
-    guard pasteboard.setString(targetURL.path, forType: .string) else {
-      NSSound.beep()
-      return
-    }
   }
 
   private func openInAgent(_ agentID: AgentID) {

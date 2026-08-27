@@ -8,27 +8,36 @@ backup_root="${OPEN_IN_AGENT_BACKUP_DIR:-$HOME/Library/Application Support/OpenI
 destination="$install_root/Open in Agent.app"
 extension_bundle_id="com.lvchengbo.openinagent.finderextension"
 extension_path="$destination/Contents/PlugIns/OpenInAgentFinderExtension.appex"
+copy_path_extension_bundle_id="com.lvchengbo.openinagent.copypath.finderextension"
+copy_path_extension_path="$destination/Contents/PlugIns/CopyPathFinderExtension.appex"
 launch_services_register="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 verify_bundle() {
   local app="$1"
   local extension="$app/Contents/PlugIns/OpenInAgentFinderExtension.appex"
+  local copy_path_extension="$app/Contents/PlugIns/CopyPathFinderExtension.appex"
 
   codesign --verify --deep --strict --verbose=2 "$app"
   codesign --verify --strict --verbose=2 "$extension"
+  codesign --verify --strict --verbose=2 "$copy_path_extension"
 }
 
 stop_installed_components() {
   if [[ -d "$extension_path" ]]; then
     /usr/bin/pluginkit -r "$extension_path" >/dev/null 2>&1 || true
   fi
+  if [[ -d "$copy_path_extension_path" ]]; then
+    /usr/bin/pluginkit -r "$copy_path_extension_path" >/dev/null 2>&1 || true
+  fi
 
   /usr/bin/pkill -TERM -x OpenInAgentFinderExtension 2>/dev/null || true
+  /usr/bin/pkill -TERM -x CopyPathFinderExtension 2>/dev/null || true
   /usr/bin/pkill -TERM -x "Open in Agent" 2>/dev/null || true
 
   local attempt
   for attempt in {1..30}; do
     if ! /usr/bin/pgrep -x OpenInAgentFinderExtension >/dev/null \
+      && ! /usr/bin/pgrep -x CopyPathFinderExtension >/dev/null \
       && ! /usr/bin/pgrep -x "Open in Agent" >/dev/null
     then
       return
@@ -98,20 +107,36 @@ verify_bundle "$destination"
 
 "$launch_services_register" -f "$destination"
 /usr/bin/pluginkit -a "$extension_path"
+/usr/bin/pluginkit -a "$copy_path_extension_path"
 /usr/bin/pluginkit -e use -i "$extension_bundle_id"
+/usr/bin/pluginkit -e use -i "$copy_path_extension_bundle_id"
 
-registration="$(/usr/bin/pluginkit -m -A -D -v -i "$extension_bundle_id")"
-registration_matches="$(printf '%s\n' "$registration" | rg -F "$extension_bundle_id" || true)"
-registration_count="$(printf '%s\n' "$registration_matches" | sed '/^$/d' | wc -l | tr -d ' ')"
+verify_registration() {
+  local bundle_id="$1"
+  local expected_path="$2"
+  local registration
+  local registration_matches
+  local registration_count
 
-if [[ "$registration_count" != "1" ]] \
-  || [[ "$registration_matches" != *"$extension_path"* ]]
-then
-  echo "ERROR: Finder extension did not register: $extension_bundle_id" >&2
-  printf '%s\n' "$registration" >&2
-  exit 1
-fi
+  registration="$(/usr/bin/pluginkit -m -A -D -v -i "$bundle_id")"
+  registration_matches="$(printf '%s\n' "$registration" | rg -F "$bundle_id" || true)"
+  registration_count="$(printf '%s\n' "$registration_matches" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+  if [[ "$registration_count" != "1" ]] \
+    || [[ "$registration_matches" != *"$expected_path"* ]]
+  then
+    echo "ERROR: Finder extension did not register: $bundle_id" >&2
+    printf '%s\n' "$registration" >&2
+    exit 1
+  fi
+}
+
+verify_registration "$extension_bundle_id" "$extension_path"
+verify_registration \
+  "$copy_path_extension_bundle_id" \
+  "$copy_path_extension_path"
 
 echo "Installed $destination"
 echo "Enabled Finder extension $extension_bundle_id"
-echo "Use Finder > View > Customize Toolbar if the Open in Agent button is not visible yet."
+echo "Enabled Finder extension $copy_path_extension_bundle_id"
+echo "Use Finder > View > Customize Toolbar to add Open in Agent and Copy Path."
