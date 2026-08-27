@@ -58,30 +58,21 @@ final class FinderSync: FIFinderSync {
       return nil
     }
 
-    let menu = NSMenu(title: toolbarItemName)
-    let item = NSMenuItem(
-      title: "Copy Path",
-      action: #selector(copyPath(_:)),
-      keyEquivalent: ""
-    )
-    item.target = self
-    item.isEnabled = currentTargetURL?.isFileURL == true
-    menu.addItem(item)
-    return menu
-  }
-
-  @objc private func copyPath(_ sender: NSMenuItem) {
+    // Finder Sync exposes this menu request as the toolbar click callback.
+    // Handle the click immediately and return no menu so copying is one step.
     guard let targetURL = currentTargetURL, targetURL.isFileURL else {
       NSSound.beep()
-      return
+      return nil
     }
 
     let pasteboard = NSPasteboard.general
     pasteboard.clearContents()
     guard pasteboard.setString(targetURL.path, forType: .string) else {
       NSSound.beep()
-      return
+      return nil
     }
+
+    return nil
   }
 
   private var currentTargetURL: URL? {
