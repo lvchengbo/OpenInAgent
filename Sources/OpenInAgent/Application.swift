@@ -145,7 +145,7 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
         title: "Couldn’t open \(selectedAgent.specification.displayName)",
         message: error.localizedDescription,
         offersAutomationSettings: {
-          if case .automationDenied? = launchError { return true }
+          if case .automationDenied = launchError { return true }
           return false
         }()
       )

@@ -4,18 +4,24 @@ import XCTest
 @testable import OpenInAgent
 
 final class TerminalLauncherTests: XCTestCase {
-  func testGhosttyUsesDiscreteArguments() {
+  func testLaunchArgumentsWrapEnvInLoginShell() throws {
     let executable = URL(fileURLWithPath: "/Users/test/.local/bin/claude")
     let directory = URL(fileURLWithPath: "/tmp/project with spaces", isDirectory: true)
+    let shell = try XCTUnwrap(LoginShell(shellPath: "/bin/zsh"))
 
     XCTAssertEqual(
-      TerminalLauncher.ghosttyArguments(
+      AgentCommand.arguments(
         executableURL: executable,
-        workingDirectory: directory
+        workingDirectory: directory,
+        loginShell: shell
       ),
       [
-        "--working-directory=/tmp/project with spaces",
-        "-e",
+        "/bin/zsh",
+        "-l",
+        "-i",
+        "-c",
+        "exec \"$@\"",
+        "open-in-agent",
         "/usr/bin/env",
         "-C",
         "/tmp/project with spaces",
@@ -24,6 +30,14 @@ final class TerminalLauncherTests: XCTestCase {
         "/Users/test/.local/bin/claude",
       ]
     )
+  }
+
+  func testGhosttyScriptTakesOnlyDirectoryAndCommandArguments() {
+    XCTAssertTrue(TerminalLauncher.ghosttyLaunchScript.contains("item 1 of argv"))
+    XCTAssertTrue(TerminalLauncher.ghosttyLaunchScript.contains("item 2 of argv"))
+    XCTAssertTrue(TerminalLauncher.ghosttyLaunchScript.contains("new window with configuration"))
+    XCTAssertFalse(TerminalLauncher.ghosttyLaunchScript.contains("initial input"))
+    XCTAssertFalse(TerminalLauncher.ghosttyLaunchScript.contains("$("))
   }
 
   func testITermEncoderRoundTripsAdversarialArguments() throws {
@@ -50,8 +64,10 @@ final class TerminalLauncherTests: XCTestCase {
     let directoryPath = "/tmp/a ' \" \\ $(touch nope) `touch nope`; &\n—"
     let executablePath = "/Users/test/.local/bin/codex"
     let command = ITermCommandEncoder.command(
-      executableURL: URL(fileURLWithPath: executablePath),
-      workingDirectory: URL(fileURLWithPath: directoryPath, isDirectory: true)
+      arguments: AgentCommand.environmentArguments(
+        executableURL: URL(fileURLWithPath: executablePath),
+        workingDirectory: URL(fileURLWithPath: directoryPath, isDirectory: true)
+      )
     )
 
     XCTAssertEqual(

@@ -23,6 +23,7 @@ enum ProcessRunner {
   static func run(
     executableURL: URL,
     arguments: [String],
+    environment: [String: String]? = nil,
     timeout: TimeInterval
   ) async throws -> ProcessResult {
     try await withCheckedThrowingContinuation { continuation in
@@ -32,6 +33,7 @@ enum ProcessRunner {
             returning: try runSynchronously(
               executableURL: executableURL,
               arguments: arguments,
+              environment: environment,
               timeout: timeout
             )
           )
@@ -45,11 +47,15 @@ enum ProcessRunner {
   private static func runSynchronously(
     executableURL: URL,
     arguments: [String],
+    environment: [String: String]?,
     timeout: TimeInterval
   ) throws -> ProcessResult {
     let process = Process()
     process.executableURL = executableURL
     process.arguments = arguments
+    if let environment {
+      process.environment = environment
+    }
 
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()

@@ -16,6 +16,7 @@
 		475F9F69E120EF5D835F85B0 /* ExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF946386B0E7DAB35408E6A4 /* ExecutableResolver.swift */; };
 		68210E61D945AC467AEC64B3 /* FinderSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DA634E5D931C8DCE5968E50 /* FinderSync.swift */; };
 		6B8C7AEEE8EB744852F584A2 /* FinderSync.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A708E825924A6F0C2F97EDF /* FinderSync.framework */; };
+		76463278EBF9EE0B38FDB6C2 /* LoginShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C7D3F7A8DA93015158019EC /* LoginShell.swift */; };
 		7C855EE4A3115BEA897E90C1 /* FinderSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8851D764985E41D108A9F9 /* FinderSync.swift */; };
 		7FE8465A8E327030E64A6954 /* Application.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02EE0B2CA43F504FBF82BA0C /* Application.swift */; };
 		8476DD17FE4643A69D56719A /* FinderSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97FF70AA751D8199B0DA2BBD /* FinderSelection.swift */; };
@@ -70,6 +71,7 @@
 		004855B117EEC2FED96D8178 /* TerminalLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLauncher.swift; sourceTree = "<group>"; };
 		02EE0B2CA43F504FBF82BA0C /* Application.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Application.swift; sourceTree = "<group>"; };
 		1A708E825924A6F0C2F97EDF /* FinderSync.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FinderSync.framework; path = System/Library/Frameworks/FinderSync.framework; sourceTree = SDKROOT; };
+		2C7D3F7A8DA93015158019EC /* LoginShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginShell.swift; sourceTree = "<group>"; };
 		34C529E6C071C53CBE41F340 /* InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = InfoPlist.strings; sourceTree = "<group>"; };
 		4EFDD51CA39BF798BCF7CEC0 /* OpenInAgent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenInAgent.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7063EC9D557F780843BE7971 /* FinderPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderPathResolver.swift; sourceTree = "<group>"; };
@@ -187,6 +189,7 @@
 				BF946386B0E7DAB35408E6A4 /* ExecutableResolver.swift */,
 				7063EC9D557F780843BE7971 /* FinderPathResolver.swift */,
 				97FF70AA751D8199B0DA2BBD /* FinderSelection.swift */,
+				2C7D3F7A8DA93015158019EC /* LoginShell.swift */,
 				B396C7EA42244E1245B954F6 /* ProcessRunner.swift */,
 				004855B117EEC2FED96D8178 /* TerminalLauncher.swift */,
 			);
@@ -328,6 +331,7 @@
 				475F9F69E120EF5D835F85B0 /* ExecutableResolver.swift in Sources */,
 				85B48F911193010798904023 /* FinderPathResolver.swift in Sources */,
 				8476DD17FE4643A69D56719A /* FinderSelection.swift in Sources */,
+				76463278EBF9EE0B38FDB6C2 /* LoginShell.swift in Sources */,
 				A4AE4EE2D0B9B886B5961764 /* ProcessRunner.swift in Sources */,
 				0ABDCFC8C53D53E630DAF5BA /* TerminalLauncher.swift in Sources */,
 			);

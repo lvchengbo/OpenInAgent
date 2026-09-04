@@ -85,14 +85,22 @@ if [[ "$signing_mode" != "unsigned" && "$signing_mode" != "none" ]]; then
   [[ "$app_automation" == "true" ]]
 fi
 
-if rg -n --glob '*.swift' \
+# Shell evaluation of launch data is prohibited. LoginShell.swift is the one
+# sanctioned `-c` site: its program is a constant and data travels in argv.
+if grep -rnE --include='*.swift' --exclude='LoginShell.swift' \
   'dangerously-skip-permissions|dangerously-bypass|/bin/(ba)?sh.*-c|/bin/zsh.*-c' \
   "$repo_root/Sources"; then
   echo "ERROR: unsafe launch pattern found in application sources" >&2
   exit 1
 fi
 
-if rg -n --glob '*.swift' \
+if grep -nE 'exec \\"\$@\\"|exec \$argv' "$repo_root/Sources/OpenInAgent/LoginShell.swift" \
+  | grep -vE '^[0-9]+:\s+"exec (\\"\$@\\"|\$argv)"$' >/dev/null; then
+  echo "ERROR: LoginShell program must remain a bare constant" >&2
+  exit 1
+fi
+
+if grep -rnE --include='*.swift' \
   'NSAppleScript|osascript|Process\s*\(|/bin/(ba)?sh|/bin/zsh' \
   "$repo_root/Sources/OpenInAgentFinderExtension" \
   "$repo_root/Sources/CopyPathFinderExtension"; then
@@ -100,7 +108,7 @@ if rg -n --glob '*.swift' \
   exit 1
 fi
 
-if rg -n 'representedObject' \
+if grep -n 'representedObject' \
   "$repo_root/Sources/OpenInAgentFinderExtension/FinderSync.swift" \
   "$repo_root/Sources/CopyPathFinderExtension/FinderSync.swift"; then
   echo "ERROR: Finder Sync does not preserve custom representedObject payloads" >&2

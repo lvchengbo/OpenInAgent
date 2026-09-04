@@ -46,7 +46,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Open in Agent asks iTerm to open your chosen command-line agent at the selected Finder location.</string>
+	<string>Open in Agent asks Ghostty or iTerm to open your chosen command-line agent at the selected Finder location.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

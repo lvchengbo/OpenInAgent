@@ -5,7 +5,7 @@ enum TerminalLauncherError: LocalizedError, Sendable {
   case missingTerminal(String)
   case missingExecutable(String)
   case invalidWorkingDirectory
-  case automationDenied
+  case automationDenied(String)
   case timedOut(String)
   case launchFailed(String)
 
@@ -17,8 +17,8 @@ enum TerminalLauncherError: LocalizedError, Sendable {
       "The \(name) command-line tool could not be found."
     case .invalidWorkingDirectory:
       "The selected working directory is no longer available."
-    case .automationDenied:
-      "Open in Agent is not allowed to control iTerm. Enable iTerm under System Settings → Privacy & Security → Automation, then try again."
+    case .automationDenied(let name):
+      "Open in Agent is not allowed to control \(name). Enable \(name) under System Settings → Privacy & Security → Automation, then try again."
     case .timedOut(let name):
       "\(name) did not respond in time."
     case .launchFailed(let detail):
@@ -27,6 +27,59 @@ enum TerminalLauncherError: LocalizedError, Sendable {
   }
 }
 
+/// Builds the argv that every terminal ultimately executes.
+enum AgentCommand {
+  /// `env -C <dir> -- PWD=<dir> <executable>` pins the process directory and
+  /// `PWD` even if the terminal's own working-directory setting is overridden.
+  static func environmentArguments(
+    executableURL: URL,
+    workingDirectory: URL
+  ) -> [String] {
+    let directoryPath = workingDirectory.path
+    return [
+      "/usr/bin/env",
+      "-C",
+      directoryPath,
+      "--",
+      "PWD=\(directoryPath)",
+      executableURL.path,
+    ]
+  }
+
+  /// The complete argv: the user's interactive login shell wrapping the
+  /// `env` invocation above, so the agent inherits the same `PATH` and
+  /// environment it would get when typed into a terminal.
+  static func arguments(
+    executableURL: URL,
+    workingDirectory: URL,
+    loginShell: LoginShell
+  ) -> [String] {
+    loginShell.arguments(
+      executing: environmentArguments(
+        executableURL: executableURL,
+        workingDirectory: workingDirectory
+      )
+    )
+  }
+}
+
+/// Encodes argv for Ghostty's `command` surface property. Ghostty evaluates
+/// that string through a non-interactive bash launched with no profile or rc
+/// files, which then `exec -l`s the command. Every element is therefore
+/// single-quoted: bash performs no expansion inside single quotes, and an
+/// embedded quote becomes the `'\''` sequence.
+enum BashCommandEncoder {
+  static func quote(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+  }
+
+  static func command(arguments: [String]) -> String {
+    arguments.map(quote).joined(separator: " ")
+  }
+}
+
+/// Encodes argv for iTerm's `command` parameter, which iTerm splits with its
+/// own double-quote-aware parser and executes without a shell.
 enum ITermCommandEncoder {
   static func quote(_ value: String) -> String {
     let escaped =
@@ -38,29 +91,26 @@ enum ITermCommandEncoder {
     return "\"\(escaped)\""
   }
 
-  static func command(
-    executableURL: URL,
-    workingDirectory: URL,
-    arguments: [String] = []
-  ) -> String {
-    let directoryPath = workingDirectory.path
-    let components =
-      [
-        "/usr/bin/env",
-        "-C",
-        directoryPath,
-        "--",
-        "PWD=\(directoryPath)",
-        executableURL.path,
-      ] + arguments
-
-    return components.map(quote).joined(separator: " ")
+  static func command(arguments: [String]) -> String {
+    arguments.map(quote).joined(separator: " ")
   }
 }
 
 enum TerminalLauncher {
-  // Data reaches this static script only through osascript's argv. It is not
+  // Data reaches these static scripts only through osascript's argv. It is not
   // interpolated into AppleScript source and never enters a shell.
+  static let ghosttyLaunchScript = """
+    on run argv
+        if (count of argv) is not 2 then error "Expected a working directory and a launch command"
+        set workingDirectory to item 1 of argv
+        set launchCommand to item 2 of argv
+        tell application id "com.mitchellh.ghostty"
+            new window with configuration {initial working directory:workingDirectory, command:launchCommand}
+            activate
+        end tell
+    end run
+    """
+
   static let iTermLaunchScript = """
     on run argv
         if (count of argv) is not 1 then error "Expected one launch command"
@@ -82,7 +132,8 @@ enum TerminalLauncher {
   @MainActor
   static func launch(
     _ resolvedAgent: ResolvedAgent,
-    workingDirectory: URL
+    workingDirectory: URL,
+    loginShell: LoginShell = .current()
   ) async throws {
     guard let executableURL = resolvedAgent.executableURL else {
       throw TerminalLauncherError.missingExecutable(
@@ -100,110 +151,46 @@ enum TerminalLauncher {
       throw TerminalLauncherError.invalidWorkingDirectory
     }
 
-    switch resolvedAgent.specification.terminal {
+    let terminal = resolvedAgent.specification.terminal
+    guard isTerminalInstalled(terminal) else {
+      throw TerminalLauncherError.missingTerminal(terminal.displayName)
+    }
+
+    let arguments = AgentCommand.arguments(
+      executableURL: executableURL,
+      workingDirectory: workingDirectory,
+      loginShell: loginShell
+    )
+
+    switch terminal {
     case .ghostty:
-      try await launchInGhostty(
-        executableURL: executableURL,
-        workingDirectory: workingDirectory
+      try await runLaunchScript(
+        ghosttyLaunchScript,
+        arguments: [
+          workingDirectory.path,
+          BashCommandEncoder.command(arguments: arguments),
+        ],
+        terminal: terminal
       )
     case .iTerm:
-      try await launchInITerm(
-        executableURL: executableURL,
-        workingDirectory: workingDirectory
+      try await runLaunchScript(
+        iTermLaunchScript,
+        arguments: [ITermCommandEncoder.command(arguments: arguments)],
+        terminal: terminal
       )
     }
   }
 
-  static func ghosttyArguments(
-    executableURL: URL,
-    workingDirectory: URL,
-    arguments: [String] = []
-  ) -> [String] {
-    [
-      "--working-directory=\(workingDirectory.path)",
-      "-e",
-      "/usr/bin/env",
-      "-C",
-      workingDirectory.path,
-      "--",
-      "PWD=\(workingDirectory.path)",
-      executableURL.path,
-    ] + arguments
-  }
-
-  @MainActor
-  private static func launchInGhostty(
-    executableURL: URL,
-    workingDirectory: URL
+  private static func runLaunchScript(
+    _ script: String,
+    arguments: [String],
+    terminal: TerminalKind
   ) async throws {
-    let terminal = TerminalKind.ghostty
-    guard
-      let applicationURL = NSWorkspace.shared.urlForApplication(
-        withBundleIdentifier: terminal.bundleIdentifier
-      )
-    else {
-      throw TerminalLauncherError.missingTerminal(terminal.displayName)
-    }
-
-    let configuration = NSWorkspace.OpenConfiguration()
-    configuration.activates = true
-    configuration.promptsUserIfNeeded = true
-    configuration.allowsRunningApplicationSubstitution = false
-    configuration.createsNewApplicationInstance = true
-    configuration.arguments = ghosttyArguments(
-      executableURL: executableURL,
-      workingDirectory: workingDirectory
-    )
-
-    try await withCheckedThrowingContinuation {
-      (continuation: CheckedContinuation<Void, any Error>) in
-      NSWorkspace.shared.openApplication(
-        at: applicationURL,
-        configuration: configuration
-      ) { application, error in
-        if let error {
-          continuation.resume(
-            throwing: TerminalLauncherError.launchFailed(
-              error.localizedDescription
-            )
-          )
-        } else if application == nil {
-          continuation.resume(
-            throwing: TerminalLauncherError.launchFailed(
-              "Ghostty returned no running application."
-            )
-          )
-        } else {
-          continuation.resume()
-        }
-      }
-    }
-  }
-
-  @MainActor
-  private static func launchInITerm(
-    executableURL: URL,
-    workingDirectory: URL
-  ) async throws {
-    let terminal = TerminalKind.iTerm
-    guard
-      NSWorkspace.shared.urlForApplication(
-        withBundleIdentifier: terminal.bundleIdentifier
-      ) != nil
-    else {
-      throw TerminalLauncherError.missingTerminal(terminal.displayName)
-    }
-
-    let command = ITermCommandEncoder.command(
-      executableURL: executableURL,
-      workingDirectory: workingDirectory
-    )
-
     let result: ProcessResult
     do {
       result = try await ProcessRunner.run(
         executableURL: URL(fileURLWithPath: "/usr/bin/osascript"),
-        arguments: ["-e", iTermLaunchScript, "--", command],
+        arguments: ["-e", script, "--"] + arguments,
         timeout: 60
       )
     } catch {
@@ -221,12 +208,12 @@ enum TerminalLauncher {
       in: .whitespacesAndNewlines
     )
     if errorText.contains("(-1743)") {
-      throw TerminalLauncherError.automationDenied
+      throw TerminalLauncherError.automationDenied(terminal.displayName)
     }
 
     throw TerminalLauncherError.launchFailed(
       errorText.isEmpty
-        ? "iTerm automation exited with status \(result.terminationStatus)."
+        ? "\(terminal.displayName) automation exited with status \(result.terminationStatus)."
         : errorText
     )
   }

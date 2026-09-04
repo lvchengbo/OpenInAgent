@@ -1,2 +1,2 @@
 "CFBundleDisplayName" = "Open in Agent";
-"NSAppleEventsUsageDescription" = "Open in Agent asks iTerm to open your chosen command-line agent at the selected Finder location.";
+"NSAppleEventsUsageDescription" = "Open in Agent asks Ghostty or iTerm to open your chosen command-line agent at the selected Finder location.";

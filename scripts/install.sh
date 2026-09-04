@@ -119,7 +119,7 @@ verify_registration() {
   local registration_count
 
   registration="$(/usr/bin/pluginkit -m -A -D -v -i "$bundle_id")"
-  registration_matches="$(printf '%s\n' "$registration" | rg -F "$bundle_id" || true)"
+  registration_matches="$(printf '%s\n' "$registration" | grep -F "$bundle_id" || true)"
   registration_count="$(printf '%s\n' "$registration_matches" | sed '/^$/d' | wc -l | tr -d ' ')"
 
   if [[ "$registration_count" != "1" ]] \
