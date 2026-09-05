@@ -25,4 +25,15 @@ final class FinderSelectionTests: XCTestCase {
       ])
     )
   }
+
+  func testLaunchArgumentRejectsFileURLWithAuthority() throws {
+    // A `file://host/tmp` argument must not be accepted: its authority would
+    // otherwise be dropped and reinterpreted as the local path /tmp.
+    XCTAssertNil(
+      FinderSelection.urlFromLaunchArguments([
+        "Open in Agent",
+        "file://server/tmp",
+      ])
+    )
+  }
 }

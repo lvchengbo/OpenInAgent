@@ -78,16 +78,22 @@ enum BashCommandEncoder {
   }
 }
 
-/// Encodes argv for iTerm's `command` parameter, which iTerm splits with its
-/// own double-quote-aware parser and executes without a shell.
+/// Encodes argv for iTerm's `command` parameter. iTerm tokenizes that string
+/// with its own `componentsInShellCommand` parser and execs the argv directly,
+/// without a shell. Inside double quotes that tokenizer treats only `"` and `\`
+/// as special; `$` and backticks are ordinary literals. Escaping `$`/`` ` ``
+/// would therefore leave a stray backslash in the delivered argument — which
+/// silently corrupted the login shell's constant `exec "$@"` program (it
+/// arrived as `exec "\$@"`) and made every iTerm session exit immediately. Only
+/// the two characters meaningful to the tokenizer are escaped; every other byte,
+/// `$` and backtick included, is carried literally, and no shell ever evaluates
+/// it.
 enum ITermCommandEncoder {
   static func quote(_ value: String) -> String {
     let escaped =
       value
       .replacingOccurrences(of: "\\", with: "\\\\")
       .replacingOccurrences(of: "\"", with: "\\\"")
-      .replacingOccurrences(of: "$", with: "\\$")
-      .replacingOccurrences(of: "`", with: "\\`")
     return "\"\(escaped)\""
   }
 

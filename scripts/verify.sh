@@ -83,6 +83,11 @@ if [[ "$signing_mode" != "unsigned" && "$signing_mode" != "none" ]]; then
   app_automation="$(codesign -d --entitlements :- "$app" 2>/dev/null \
     | plutil -extract 'com\.apple\.security\.automation\.apple-events' raw -o - -)"
   [[ "$app_automation" == "true" ]]
+else
+  echo "WARNING: OPEN_IN_AGENT_SIGNING=$signing_mode — code signatures, the" \
+    "extension sandbox entitlement, and the app's Apple Events entitlement" \
+    "were NOT verified. This artifact's security model is unverified and it is" \
+    "not installable as-is." >&2
 fi
 
 # Shell evaluation of launch data is prohibited. LoginShell.swift is the one
@@ -115,6 +120,11 @@ if grep -n 'representedObject' \
   exit 1
 fi
 
-echo "Verification passed: $app"
+if [[ "$signing_mode" == "unsigned" || "$signing_mode" == "none" ]]; then
+  echo "Verification passed (compile-only, UNSIGNED): $app"
+  echo "Signatures and entitlements were not verified; do not install this artifact." >&2
+else
+  echo "Verification passed: $app"
+fi
 echo "Finder extension verified: $extension"
 echo "Copy Path extension verified: $copy_path_extension"

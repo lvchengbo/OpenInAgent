@@ -235,6 +235,14 @@ struct AgentHandoffStore {
     }
     defer { Darwin.close(descriptor) }
 
+    // O_CREAT's mode is masked by the process umask, so pin the record to
+    // exactly 0600. A restrictive session umask could otherwise create an
+    // unreadable record and make every handoff fail.
+    guard Darwin.fchmod(descriptor, 0o600) == 0 else {
+      Darwin.unlink(url.path)
+      throw AgentHandoffStoreError.couldNotCreateRecord
+    }
+
     do {
       try write(data, to: descriptor)
       guard Darwin.fsync(descriptor) == 0 else {

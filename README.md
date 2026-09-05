@@ -88,17 +88,18 @@ Then configure Finder once:
    an agent, or **Copy Path** to copy the selected path.
 
 If either native item is missing, open the containing app once and choose
-**Open Extension Settings**, then enable both Finder extensions. The first iTerm
-launch may ask permission to control iTerm under System Settings → Privacy &
-Security → Automation. Finder access itself does not require an Automation
-prompt because Finder supplies the selection to its extension.
+**Open Extension Settings**, then enable both Finder extensions. The first
+launch into Ghostty or iTerm may ask permission to control that app under System
+Settings → Privacy & Security → Automation, because Open in Agent drives both
+terminals through AppleScript. Finder access itself does not require an
+Automation prompt because Finder supplies the selection to its extension.
 
 ### Signing upgrades
 
 Local builds use matching ad-hoc hardened-runtime signatures for the containing
 app and embedded extensions. The utility is fully usable on this Mac, but macOS
-may ask for iTerm Automation permission again after a rebuild because an ad-hoc
-identity is tied to that exact binary.
+may ask for Ghostty or iTerm Automation permission again after a rebuild because
+an ad-hoc identity is tied to that exact binary.
 
 If this Mac later has a stable code-signing identity, build with it to preserve
 the app identity across upgrades:
@@ -122,11 +123,16 @@ repository targets a personal local installation rather than App Store review.
   sandbox container. Its activation URL carries only a random one-time UUID;
   the backend atomically consumes the record and rejects replay, stale data,
   symlinks, loose permissions, malformed records, and nonlocal file URLs.
-- Claude is launched in Ghostty with discrete `NSWorkspace` arguments.
-- iTerm receives an opaque, defensively quoted argv command through `osascript`
-  argv; selected paths never enter AppleScript source.
+- Each agent is wrapped in the user's interactive login shell with a constant
+  `-c` program, so it inherits the same `PATH` it would when typed into a
+  terminal while the selected path travels only as argv.
+- Ghostty and iTerm are both driven through a constant AppleScript over
+  `osascript` argv; selected paths never enter AppleScript source. Ghostty's
+  `command` property is single-quoted for the bash that evaluates it, and
+  iTerm's command is double-quoted for its own parser.
 - Every CLI resolves to a canonical absolute executable regular file in fixed
-  configured locations. The parent process’s `PATH` is never searched.
+  configured locations. The parent process’s inherited `PATH` is never searched
+  to locate the executable.
 - Tests cover quotes, backslashes, `$()`, backticks, separators, newlines,
   leading dashes, Unicode, opaque-token replay, expiry, record permissions, and
   symlink attacks.

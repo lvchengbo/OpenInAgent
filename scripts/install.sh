@@ -70,18 +70,35 @@ case "$staging_root" in
 esac
 staged_app="$staging_root/Open in Agent.app"
 
-cleanup_staging() {
+backup=""
+commit_done=0
+cleanup() {
+  # Roll back a half-finished upgrade: if the destination was already swapped
+  # for the new (still-unverified) app and we did not reach a clean finish,
+  # remove it and restore the known-good backup, then re-register it. Otherwise
+  # the old app is lost to the backup directory and the Mac is left with no
+  # working install.
+  if [[ "$commit_done" != "1" && -n "$backup" && -e "$backup" ]]; then
+    if [[ -e "$destination" && ! -e "$staged_app" ]]; then
+      rm -rf "$destination" || true
+    fi
+    if [[ ! -e "$destination" ]] && mv "$backup" "$destination"; then
+      "$launch_services_register" -f "$destination" >/dev/null 2>&1 || true
+      /usr/bin/pluginkit -a "$extension_path" >/dev/null 2>&1 || true
+      /usr/bin/pluginkit -a "$copy_path_extension_path" >/dev/null 2>&1 || true
+      echo "Restored the previous app from backup after a failed install." >&2
+    fi
+  fi
   if [[ -d "$staging_root" ]]; then
     rm -rf "$staging_root"
   fi
 }
-trap cleanup_staging EXIT
+trap cleanup EXIT
 
 /usr/bin/ditto "$source_app" "$staged_app"
 verify_bundle "$staged_app"
 stop_installed_components
 
-backup=""
 if [[ -e "$destination" ]]; then
   mkdir -p "$backup_root"
   chmod 700 "$backup_root"
@@ -135,6 +152,10 @@ verify_registration "$extension_bundle_id" "$extension_path"
 verify_registration \
   "$copy_path_extension_bundle_id" \
   "$copy_path_extension_path"
+
+# Every post-swap check passed; keep the new app and stop the rollback trap
+# from restoring the backup on exit.
+commit_done=1
 
 echo "Installed $destination"
 echo "Enabled Finder extension $extension_bundle_id"

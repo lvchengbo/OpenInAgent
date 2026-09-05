@@ -16,8 +16,9 @@ Events, or launches a terminal.
 
 The short-lived containing app is intentionally not App-Sandboxed because it
 launches locally installed command-line tools. It requests Apple Events access
-only for iTerm. It does not request Full Disk Access, Accessibility,
-administrator privileges, or Finder Automation.
+because it drives both Ghostty and iTerm through AppleScript. It does not
+request Full Disk Access, Accessibility, administrator privileges, or Finder
+Automation.
 
 ## Finder handoff
 
@@ -56,39 +57,60 @@ directory keeps that directory.
 
 ## Terminal launch boundaries
 
-### Ghostty
-
-`NSWorkspace.OpenConfiguration.arguments` sends these discrete arguments from
-the unsandboxed host:
+Both terminals run the same login-shell-wrapped argv. The wrapping login shell
+restores the interactive `PATH` the agent needs (Homebrew, nvm, `~/.local/bin`),
+its `-c` program is the constant `exec "$@"` (or `exec $argv` for fish), and the
+selected directory and executable travel only as later argv elements, never as
+shell source:
 
 ```text
---working-directory=<selected directory>
--e
-/usr/bin/env -C <selected directory> -- PWD=<selected directory> <absolute claude executable>
+<login shell> -l -i -c 'exec "$@"' open-in-agent /usr/bin/env -C <dir> -- PWD=<dir> <absolute executable>
 ```
 
-Ghostty documents `-e` as an argv command with shell expansion disabled. The
-direct `env -C` invocation also pins both the process directory and `PWD`, even
-if Ghostty's own working-directory preference is overridden.
+The `env -C` invocation pins both the process directory and `PWD`. Data reaches
+each terminal only through `osascript` argv; it is never interpolated into the
+constant AppleScript source.
+
+### Ghostty
+
+The unsandboxed host runs a constant AppleScript through `osascript` argv that
+creates a window from Ghostty's scripting dictionary:
+
+```text
+new window with configuration {initial working directory:<dir>, command:<launch command>}
+```
+
+`<launch command>` is the wrapped argv above, single-quoted element by element.
+Ghostty evaluates its `command` surface property through a non-interactive
+`bash --noprofile --norc -c "exec -l …"`, so every element is single-quoted
+(`'…'`, an embedded quote becoming `'\''`); bash performs no expansion inside
+single quotes.
 
 ### iTerm
 
-OpenInAgent asks iTerm to create a window with an encoded argv command:
+The host asks iTerm to create a window with the wrapped argv as its command:
 
 ```text
-/usr/bin/env -C <selected directory> -- PWD=<selected directory> <absolute executable>
+create window with default profile command <launch command>
 ```
 
+Here `<launch command>` double-quotes each element for iTerm’s
+`componentsInShellCommand` tokenizer, escaping only the two characters that
+tokenizer treats as special inside double quotes — `"` and `\`. iTerm does not
+expand the command, so `$`, backticks, and other metacharacters are ordinary
+literals and must not be backslash-escaped; escaping them would leave a stray
+backslash in the delivered argument (which previously corrupted the login
+shell's constant `exec "$@"` program and made every iTerm session exit at once).
 The value is passed to a constant AppleScript through `osascript` argv, not
-inserted into AppleScript source. Each element is double-quoted for iTerm’s
-`componentsInShellCommand` parser. iTerm launches the resulting path and
-arguments directly rather than invoking a shell. As defense in depth, the
-encoding also preserves every argument literally if a future iTerm version
-routes the command through a POSIX shell.
+inserted into AppleScript source. iTerm tokenizes the string and launches the
+resulting path and arguments directly, without a shell, so no element is ever
+evaluated; the login shell it launches is what restores the interactive `PATH`.
 
 ## Explicitly prohibited patterns
 
-- `sh -c`, `zsh -c`, or equivalent shell evaluation
+- shell evaluation of a command string built from the selection; the login-shell
+  wrapper is the one sanctioned `-c` site, and its program is the bare constant
+  `exec "$@"` (or `exec $argv`) with every path carried only as argv
 - terminal `write text` or synthetic keystrokes
 - editable free-form command templates
 - automatic permission-bypass flags
@@ -96,10 +118,12 @@ routes the command through a POSIX shell.
 - force-restarting Finder
 - process, shell, or AppleScript execution inside either Finder extension
 
-`scripts/verify.sh` rejects these patterns in production Swift sources. Unit
-tests round-trip adversarial values through the private handoff record, iTerm
-encoder, and `osascript` argv transport, while separately enforcing that the
-public activation URL contains only a canonical UUID token.
+`scripts/verify.sh` enforces this in production Swift sources: it bans
+data-bearing shell evaluation everywhere and separately pins `LoginShell`'s `-c`
+program to its bare constant. Unit tests round-trip adversarial values through
+the private handoff record, both terminal encoders, the login-shell wrapper, and
+`osascript` argv transport, while separately enforcing that the public
+activation URL contains only a canonical UUID token.
 
 ## Remaining platform trust
 
@@ -112,7 +136,7 @@ code-signing requirements, so software substitution within those configured
 locations remains a user-installation risk.
 
 The containing app and both embedded extensions are signed inside-out with the
-same identity. Local builds use ad-hoc signing, so iTerm Automation consent may
-need to be granted again after rebuilding. `scripts/build-app.sh` supports a
+same identity. Local builds use ad-hoc signing, so Ghostty or iTerm Automation
+consent may need to be granted again after rebuilding. `scripts/build-app.sh` supports a
 stable identity through `OPEN_IN_AGENT_SIGNING=identity`; public distribution
 still requires Developer ID signing and notarization.

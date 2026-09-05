@@ -9,11 +9,19 @@ enum FinderSelection {
       guard !argument.hasPrefix("-psn_") else { continue }
       guard !argument.hasPrefix("--") else { continue }
 
-      let url: URL
+      let candidate: URL
       if let parsed = URL(string: argument), parsed.isFileURL {
-        url = parsed
+        candidate = parsed
       } else {
-        url = URL(fileURLWithPath: argument)
+        candidate = URL(fileURLWithPath: argument)
+      }
+
+      // Hold launch-argument URLs to the same bar as the handoff: an absolute
+      // local file URL with no authority, user info, port, query, or fragment.
+      // This rejects `file://host/path`, whose authority would otherwise be
+      // silently dropped to an unrelated local path.
+      guard let url = AgentLaunchRequest.validatedTargetURL(candidate) else {
+        continue
       }
 
       if fileManager.fileExists(atPath: url.path) {

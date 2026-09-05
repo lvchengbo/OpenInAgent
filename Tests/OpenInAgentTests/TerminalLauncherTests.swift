@@ -90,18 +90,32 @@ final class TerminalLauncherTests: XCTestCase {
     XCTAssertFalse(TerminalLauncher.iTermLaunchScript.contains("write text"))
   }
 
-  func testITermQuoteRemainsLiteralIfEvaluatedByAShell() async throws {
-    let payload = "$(printf injected) `printf injected` \\ \" ' ; & |\n—🙂"
-    let command = "printf '%s' \(ITermCommandEncoder.quote(payload))"
+  func testITermEncoderDoesNotBackslashEscapeDollarOrBacktick() {
+    // iTerm tokenizes and execs directly; it never expands, so $ and ` are
+    // ordinary literals. Escaping them would inject a stray backslash into the
+    // delivered argument.
+    XCTAssertEqual(ITermCommandEncoder.quote("$@"), "\"$@\"")
+    XCTAssertEqual(ITermCommandEncoder.quote("`cmd`"), "\"`cmd`\"")
+    XCTAssertEqual(ITermCommandEncoder.quote("a\"b\\c"), "\"a\\\"b\\\\c\"")
+  }
 
-    let result = try await ProcessRunner.run(
-      executableURL: URL(fileURLWithPath: "/bin/sh"),
-      arguments: ["-c", command],
-      timeout: 2
+  func testITermCommandPreservesLoginShellProgram() throws {
+    // Regression: the login shell's constant `exec "$@"` program must survive
+    // iTerm's tokenizer intact. When $ was escaped it arrived as `exec "\$@"`,
+    // so zsh treated $@ as a literal string, exec failed, and every iTerm
+    // session exited immediately.
+    let shell = try XCTUnwrap(LoginShell(shellPath: "/bin/zsh"))
+    let argv = AgentCommand.arguments(
+      executableURL: URL(fileURLWithPath: "/Users/test/.local/bin/codex"),
+      workingDirectory: URL(fileURLWithPath: "/tmp/project $x `y`", isDirectory: true),
+      loginShell: shell
     )
 
-    XCTAssertEqual(result.terminationStatus, 0, result.standardError)
-    XCTAssertEqual(result.standardOutput, payload)
+    XCTAssertEqual(
+      try decodeCommand(ITermCommandEncoder.command(arguments: argv)),
+      argv
+    )
+    XCTAssertTrue(argv.contains("exec \"$@\""))
   }
 
   func testOSAScriptTransportsCommandAsOneOpaqueArgument() async throws {
@@ -151,8 +165,16 @@ final class TerminalLauncherTests: XCTestCase {
           guard index < command.endIndex else {
             throw DecodeError.danglingEscape
           }
-          current.append(command[index])
-          index = command.index(after: index)
+          let next = command[index]
+          if next == "\"" || next == "\\" {
+            current.append(next)
+            index = command.index(after: index)
+          } else {
+            // iTerm's tokenizer keeps a backslash that precedes any other
+            // character (only " and \ are escapes inside double quotes), so
+            // $ and ` must never be backslash-escaped by the encoder.
+            current.append("\\")
+          }
         } else if character == "\"" {
           closed = true
           break
