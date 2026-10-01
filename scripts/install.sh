@@ -161,6 +161,16 @@ if ! mv "$staged_app" "$destination"; then
 fi
 verify_bundle "$destination"
 
+# The staged build is byte-identical to what was just installed. If that copy
+# is registered as well (LaunchServices registers an app the moment it is run
+# or scanned), PlugInKit keeps it and never lists the installed one, so the
+# duplicate check below fails. Only the installed copy may stay registered.
+/usr/bin/pluginkit -r \
+  "$source_app/Contents/PlugIns/OpenInAgentFinderExtension.appex" >/dev/null 2>&1 || true
+/usr/bin/pluginkit -r \
+  "$source_app/Contents/PlugIns/CopyPathFinderExtension.appex" >/dev/null 2>&1 || true
+"$launch_services_register" -u "$source_app" >/dev/null 2>&1 || true
+
 "$launch_services_register" -f "$destination"
 /usr/bin/pluginkit -a "$extension_path"
 /usr/bin/pluginkit -a "$copy_path_extension_path"
