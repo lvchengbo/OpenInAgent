@@ -27,6 +27,9 @@ private enum OpenInAgentApplication {
 
 @MainActor
 final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
+  /// How long a non-default launch may wait for its activation URL.
+  static let startupDeadline: TimeInterval = 10
+
   private(set) var exitStatus: Int32 = 0
   private var launchTask: Task<Void, Never>?
   private var menuController: AgentMenuController?
@@ -39,6 +42,15 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
     handle(
       launchState.didFinishLaunching(isDefaultLaunch: isDefaultLaunch)
     )
+
+    // Without a deadline, a non-default launch whose activation URL never
+    // arrives would keep this windowless app alive indefinitely.
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + Self.startupDeadline
+    ) { [weak self] in
+      guard let self else { return }
+      self.handle(self.launchState.startupDeadlineExpired())
+    }
   }
 
   func application(_ application: NSApplication, open urls: [URL]) {

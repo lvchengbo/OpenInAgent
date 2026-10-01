@@ -140,6 +140,73 @@ final class TerminalLauncherTests: XCTestCase {
     )
   }
 
+  func testWorkingDirectoryMustExistAndBeSearchable() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("OpenInAgent-\(UUID().uuidString)", isDirectory: true)
+    let locked = root.appendingPathComponent("locked", isDirectory: true)
+    let file = root.appendingPathComponent("file.txt")
+    try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+    try Data().write(to: file)
+    defer {
+      try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path)
+      try? FileManager.default.removeItem(at: root)
+    }
+
+    XCTAssertTrue(TerminalLauncher.isUsableWorkingDirectory(root))
+    XCTAssertFalse(TerminalLauncher.isUsableWorkingDirectory(file))
+    XCTAssertFalse(
+      TerminalLauncher.isUsableWorkingDirectory(root.appendingPathComponent("missing"))
+    )
+
+    // A directory that exists but cannot be entered: `env -C` would fail inside
+    // the terminal after the launch had already been reported as a success.
+    try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+    XCTAssertFalse(TerminalLauncher.isUsableWorkingDirectory(locked))
+  }
+
+  func testVersionComparisonIsNumericPerComponent() {
+    XCTAssertTrue(TerminalLauncher.isVersion("1.3.0", atLeast: "1.3.0"))
+    XCTAssertTrue(TerminalLauncher.isVersion("1.3.1", atLeast: "1.3.0"))
+    XCTAssertTrue(TerminalLauncher.isVersion("1.10.0", atLeast: "1.3.0"))
+    XCTAssertTrue(TerminalLauncher.isVersion("2.0", atLeast: "1.3.0"))
+    XCTAssertFalse(TerminalLauncher.isVersion("1.2.3", atLeast: "1.3.0"))
+    XCTAssertFalse(TerminalLauncher.isVersion("1.2", atLeast: "1.3.0"))
+    XCTAssertEqual(TerminalKind.ghostty.minimumVersion, "1.3.0")
+    XCTAssertNil(TerminalKind.iTerm.minimumVersion)
+  }
+
+  func testLaunchErrorClassifiesAppleEventErrorNumbers() {
+    func classify(_ standardError: String) -> TerminalLauncherError {
+      TerminalLauncher.launchError(
+        standardError: standardError,
+        terminationStatus: 1,
+        terminal: .iTerm
+      )
+    }
+
+    guard
+      case .automationDenied("iTerm") = classify(
+        "execution error: Not authorized to send Apple events to iTerm. (-1743)\n"
+      )
+    else { return XCTFail("-1743 should be an Automation denial") }
+
+    guard
+      case .timedOut("iTerm") = classify(
+        "execution error: iTerm got an error: AppleEvent timed out. (-1712)\n"
+      )
+    else { return XCTFail("-1712 should be a timeout") }
+
+    guard case .launchFailed(let detail) = classify("  some other failure (-2700)\n") else {
+      return XCTFail("unknown errors should be generic launch failures")
+    }
+    XCTAssertEqual(detail, "some other failure (-2700)")
+
+    guard case .launchFailed(let fallback) = classify("") else {
+      return XCTFail("empty output should be a generic launch failure")
+    }
+    XCTAssertEqual(fallback, "iTerm automation exited with status 1.")
+  }
+
   private func decodeSingle(_ encoded: String) throws -> String {
     let values = try decodeCommand(encoded)
     return try XCTUnwrap(values.only)

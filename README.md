@@ -35,7 +35,7 @@ Requirements:
 - macOS 13 or newer
 - Xcode with Swift 6.2 or newer
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
-- Ghostty and iTerm
+- Ghostty 1.3 or newer (its AppleScript support arrived in 1.3.0) and iTerm
 - whichever agent CLIs you want to launch
 
 Run the complete verification:

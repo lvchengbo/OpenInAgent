@@ -9,9 +9,12 @@ enum TerminalLauncherError: LocalizedError, Sendable {
   case timedOut(String)
   case launchFailed(String)
   case unsupportedLoginShell(String)
+  case terminalTooOld(String, String)
 
   var errorDescription: String? {
     switch self {
+    case .terminalTooOld(let name, let minimum):
+      "\(name) \(minimum) or newer is required. Update \(name) and try again."
     case .unsupportedLoginShell(let name):
       "Your login shell (\(name)) isn’t supported. Open in Agent can wrap zsh, bash, sh, ksh, dash, ash, mksh, or fish; change your account shell or set SHELL to one of those."
     case .missingTerminal(let name):
@@ -19,7 +22,7 @@ enum TerminalLauncherError: LocalizedError, Sendable {
     case .missingExecutable(let name):
       "The \(name) command-line tool could not be found."
     case .invalidWorkingDirectory:
-      "The selected working directory is no longer available."
+      "The selected working directory is no longer available or can’t be opened."
     case .automationDenied(let name):
       "Open in Agent is not allowed to control \(name). Enable \(name) under System Settings → Privacy & Security → Automation, then try again."
     case .timedOut(let name):
@@ -138,6 +141,70 @@ enum TerminalLauncher {
     ) != nil
   }
 
+  /// A working directory must exist and be searchable. `env -C` needs execute
+  /// permission to enter it; without this check the terminal window opens, the
+  /// command fails inside it, and the launch is reported as a success.
+  static func isUsableWorkingDirectory(_ url: URL) -> Bool {
+    var isDirectory: ObjCBool = false
+    guard
+      FileManager.default.fileExists(
+        atPath: url.path,
+        isDirectory: &isDirectory
+      ), isDirectory.boolValue
+    else {
+      return false
+    }
+    return access(url.path, X_OK) == 0
+  }
+
+  /// Whether `version` is the same as or newer than `minimum`, comparing
+  /// dotted components numerically so that 1.10.0 is newer than 1.3.0.
+  static func isVersion(_ version: String, atLeast minimum: String) -> Bool {
+    version.compare(minimum, options: .numeric) != .orderedAscending
+  }
+
+  /// Whether the installed terminal is new enough for the automation API the
+  /// launcher uses. A terminal with no minimum, or whose version cannot be
+  /// read, is not blocked.
+  @MainActor
+  static func meetsMinimumVersion(_ terminal: TerminalKind) -> Bool {
+    guard
+      let minimum = terminal.minimumVersion,
+      let applicationURL = NSWorkspace.shared.urlForApplication(
+        withBundleIdentifier: terminal.bundleIdentifier
+      ),
+      let version = Bundle(url: applicationURL)?
+        .infoDictionary?["CFBundleShortVersionString"] as? String
+    else {
+      return true
+    }
+    return isVersion(version, atLeast: minimum)
+  }
+
+  /// Maps a failed `osascript` run to a launcher error using the Apple event
+  /// error number in its output: -1743 is "not authorized to send Apple
+  /// events", -1712 is "Apple event timed out".
+  static func launchError(
+    standardError: String,
+    terminationStatus: Int32,
+    terminal: TerminalKind
+  ) -> TerminalLauncherError {
+    let errorText = standardError.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    )
+    if errorText.contains("(-1743)") {
+      return .automationDenied(terminal.displayName)
+    }
+    if errorText.contains("(-1712)") {
+      return .timedOut(terminal.displayName)
+    }
+    return .launchFailed(
+      errorText.isEmpty
+        ? "\(terminal.displayName) automation exited with status \(terminationStatus)."
+        : errorText
+    )
+  }
+
   @MainActor
   static func launch(
     _ resolvedAgent: ResolvedAgent,
@@ -150,19 +217,16 @@ enum TerminalLauncher {
       )
     }
 
-    var isDirectory: ObjCBool = false
-    guard
-      FileManager.default.fileExists(
-        atPath: workingDirectory.path,
-        isDirectory: &isDirectory
-      ), isDirectory.boolValue
-    else {
+    guard isUsableWorkingDirectory(workingDirectory) else {
       throw TerminalLauncherError.invalidWorkingDirectory
     }
 
     let terminal = resolvedAgent.specification.terminal
     guard isTerminalInstalled(terminal) else {
       throw TerminalLauncherError.missingTerminal(terminal.displayName)
+    }
+    if let minimum = terminal.minimumVersion, !meetsMinimumVersion(terminal) {
+      throw TerminalLauncherError.terminalTooOld(terminal.displayName, minimum)
     }
 
     let shell: LoginShell
@@ -220,17 +284,10 @@ enum TerminalLauncher {
       throw TerminalLauncherError.timedOut(terminal.displayName)
     }
 
-    let errorText = result.standardError.trimmingCharacters(
-      in: .whitespacesAndNewlines
-    )
-    if errorText.contains("(-1743)") {
-      throw TerminalLauncherError.automationDenied(terminal.displayName)
-    }
-
-    throw TerminalLauncherError.launchFailed(
-      errorText.isEmpty
-        ? "\(terminal.displayName) automation exited with status \(result.terminationStatus)."
-        : errorText
+    throw launchError(
+      standardError: result.standardError,
+      terminationStatus: result.terminationStatus,
+      terminal: terminal
     )
   }
 }

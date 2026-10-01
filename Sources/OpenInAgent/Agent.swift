@@ -30,6 +30,17 @@ enum TerminalKind: String, Sendable {
       "com.googlecode.iterm2"
     }
   }
+
+  /// Oldest release whose automation API the launcher relies on. Ghostty's
+  /// AppleScript dictionary first shipped in 1.3.0.
+  var minimumVersion: String? {
+    switch self {
+    case .ghostty:
+      "1.3.0"
+    case .iTerm:
+      nil
+    }
+  }
 }
 
 struct AgentSpec: Identifiable, Equatable, Sendable {

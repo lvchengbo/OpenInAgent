@@ -45,6 +45,16 @@ struct ApplicationLaunchState {
     return hasFinishedLaunching ? emit(.launch(handoffURL)) : nil
   }
 
+  /// Called when the startup grace period ends. A launch that is neither a
+  /// default launch nor followed by an activation URL (printing, state
+  /// restoration, a URL that never arrives) would otherwise leave the
+  /// windowless accessory app running forever, so it is rejected instead.
+  /// Does nothing once any decision has been made.
+  mutating func startupDeadlineExpired() -> ApplicationLaunchDecision? {
+    guard hasFinishedLaunching else { return nil }
+    return emit(.rejectInvalidRequest)
+  }
+
   private mutating func emit(
     _ decision: ApplicationLaunchDecision
   ) -> ApplicationLaunchDecision? {

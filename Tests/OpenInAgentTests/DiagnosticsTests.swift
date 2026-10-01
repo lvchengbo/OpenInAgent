@@ -55,4 +55,25 @@ final class DiagnosticsTests: XCTestCase {
         .hasSuffix("Status: missing required software")
     )
   }
+
+  func testTerminalBelowMinimumVersionIsNotReady() throws {
+    let specification = try XCTUnwrap(
+      AgentCatalog.all.first { $0.id == .claude }
+    )
+    let entry = DiagnosticEntry(
+      agent: ResolvedAgent(
+        specification: specification,
+        executableURL: URL(fileURLWithPath: "/tmp/bin/claude")
+      ),
+      terminalURL: URL(fileURLWithPath: "/Applications/Ghostty.app"),
+      terminalMeetsMinimumVersion: false
+    )
+
+    XCTAssertFalse(entry.isReady)
+    XCTAssertEqual(
+      entry.description,
+      "Claude: command=/tmp/bin/claude | terminal=Ghostty (/Applications/Ghostty.app)"
+        + " | needs Ghostty 1.3.0 or newer"
+    )
+  }
 }

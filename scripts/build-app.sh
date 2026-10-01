@@ -133,6 +133,51 @@ sign_bundles() {
   codesign --verify --deep --strict --verbose=2 "$app_bundle"
 }
 
+# Reject a bad signing configuration before spending a build on it.
+case "$signing_mode" in
+  adhoc|unsigned|none) ;;
+  identity)
+    if [[ -z "$signing_identity" ]]; then
+      echo "ERROR: OPEN_IN_AGENT_SIGN_IDENTITY is required for identity signing" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    echo "ERROR: OPEN_IN_AGENT_SIGNING must be 'adhoc', 'identity', 'unsigned', or 'none'" >&2
+    exit 2
+    ;;
+esac
+
+# Xcode registers development products during a normal macOS build. Remove
+# those transient copies so Finder and URL dispatch see only the stable
+# install. This runs from an EXIT trap so that a build which fails after Xcode
+# has registered them (during packaging or signing, say) does not leave them
+# behind; the script's own exit status is preserved.
+unregister_development_products() {
+  local launch_services_register="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  local development_app="$derived_data/Build/Products/$configuration/$app_name.app"
+  local bundle
+  for bundle in \
+    "$development_app/Contents/PlugIns/$extension_name.appex" \
+    "$development_app/Contents/PlugIns/$copy_path_extension_name.appex" \
+    "$extension_bundle" \
+    "$copy_path_extension_bundle"
+  do
+    /usr/bin/pluginkit -r "$bundle" >/dev/null 2>&1 || true
+  done
+  "$launch_services_register" -u "$development_app" >/dev/null 2>&1 || true
+  "$launch_services_register" -u "$app_bundle" >/dev/null 2>&1 || true
+
+  local leftover
+  leftover="$(/usr/bin/pluginkit -m -A -D -v 2>/dev/null \
+    | /usr/bin/grep -F "$repo_root/.build/" || true)"
+  if [[ -n "$leftover" ]]; then
+    echo "WARNING: development Finder extensions are still registered:" >&2
+    printf '%s\n' "$leftover" >&2
+  fi
+}
+trap unregister_development_products EXIT
+
 command -v xcodegen >/dev/null 2>&1 || {
   echo "ERROR: xcodegen is required. Install it with 'brew install xcodegen'." >&2
   exit 1
@@ -163,8 +208,6 @@ if [[ ! -d "$built_app" ]]; then
   echo "ERROR: Xcode did not produce $built_app" >&2
   exit 1
 fi
-built_extension="$built_app/Contents/PlugIns/$extension_name.appex"
-built_copy_path_extension="$built_app/Contents/PlugIns/$copy_path_extension_name.appex"
 
 /usr/bin/ditto "$built_app" "$app_bundle"
 
@@ -216,12 +259,3 @@ echo "Extension architectures: $(lipo -archs "$extension_bundle/Contents/MacOS/$
 echo "Copy Path extension architectures: $(lipo -archs "$copy_path_extension_bundle/Contents/MacOS/$copy_path_extension_name")"
 echo "Version: $marketing_version ($build_number)"
 
-# Xcode registers development products during a normal macOS build. Remove
-# those transient copies so Finder and URL dispatch see only the stable install.
-launch_services_register="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-/usr/bin/pluginkit -r "$built_extension" >/dev/null 2>&1 || true
-/usr/bin/pluginkit -r "$built_copy_path_extension" >/dev/null 2>&1 || true
-/usr/bin/pluginkit -r "$extension_bundle" >/dev/null 2>&1 || true
-/usr/bin/pluginkit -r "$copy_path_extension_bundle" >/dev/null 2>&1 || true
-"$launch_services_register" -u "$built_app" >/dev/null 2>&1 || true
-"$launch_services_register" -u "$app_bundle" >/dev/null 2>&1 || true

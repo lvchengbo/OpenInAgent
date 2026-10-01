@@ -71,6 +71,34 @@ final class ApplicationLaunchStateTests: XCTestCase {
     )
   }
 
+  func testStartupDeadlineRejectsNonDefaultLaunchThatNeverGetsAURL() {
+    // Printing, state restoration, or a URL that never arrives: without a
+    // deadline the windowless accessory app would run forever.
+    var state = ApplicationLaunchState()
+
+    XCTAssertNil(state.didFinishLaunching(isDefaultLaunch: false))
+    XCTAssertEqual(state.startupDeadlineExpired(), .rejectInvalidRequest)
+    XCTAssertNil(state.startupDeadlineExpired())
+    XCTAssertNil(state.receive(urls: [makeActivationURL()]))
+  }
+
+  func testStartupDeadlineDoesNothingOnceADecisionWasMade() {
+    let activationURL = makeActivationURL()
+
+    var handoff = ApplicationLaunchState()
+    XCTAssertNil(handoff.didFinishLaunching(isDefaultLaunch: false))
+    XCTAssertEqual(handoff.receive(urls: [activationURL]), .launch(activationURL))
+    XCTAssertNil(handoff.startupDeadlineExpired())
+
+    var interactive = ApplicationLaunchState()
+    XCTAssertEqual(interactive.didFinishLaunching(isDefaultLaunch: true), .launch(nil))
+    XCTAssertNil(interactive.startupDeadlineExpired())
+
+    var notLaunchedYet = ApplicationLaunchState()
+    XCTAssertNil(notLaunchedYet.startupDeadlineExpired())
+    XCTAssertEqual(notLaunchedYet.didFinishLaunching(isDefaultLaunch: true), .launch(nil))
+  }
+
   private func makeActivationURL() -> URL {
     URL(string: "openinagent://launch/\(UUID().uuidString)")!
   }

@@ -60,7 +60,13 @@ final class FinderSync: FIFinderSync {
 
     // Finder Sync exposes this menu request as the toolbar click callback.
     // Handle the click immediately and return no menu so copying is one step.
-    guard let targetURL = currentTargetURL, targetURL.isFileURL else {
+    // Only a local file URL has a meaningful POSIX path: for
+    // `file://server/share/item`, `.path` would silently drop the authority.
+    guard
+      let targetURL = currentTargetURL,
+      targetURL.isFileURL,
+      (targetURL.host ?? "").isEmpty
+    else {
       NSSound.beep()
       return nil
     }
