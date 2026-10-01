@@ -18,10 +18,37 @@ final class LoginShellTests: XCTestCase {
     XCTAssertNil(LoginShell.dialect(forShellNamed: "nu"))
   }
 
-  func testCurrentShellFallsBackToZsh() {
-    let shell = LoginShell.current(environment: ["SHELL": "/nonexistent/nu"])
-    XCTAssertTrue(shell.executableURL.path.hasSuffix("sh"))
+  func testCurrentShellFallsBackToZshWhenNoUsableShell() throws {
+    let shell = try LoginShell.current(
+      accountShell: "/nonexistent/nu",
+      environment: ["SHELL": "/nonexistent/nu"]
+    )
+    XCTAssertEqual(shell.executableURL.path, "/bin/zsh")
     XCTAssertEqual(shell.dialect, .posix)
+  }
+
+  func testUnsupportedAccountShellIsReportedNotSilentlyReplaced() throws {
+    // csh/tcsh are real login shells the wrapper cannot drive. Silently
+    // switching to zsh would drop that user's environment and PATH, so the
+    // resolver must report it instead.
+    XCTAssertThrowsError(
+      try LoginShell.current(accountShell: "/bin/tcsh", environment: [:])
+    ) { error in
+      guard case LoginShellError.unsupportedShell(let name) = error else {
+        return XCTFail("unexpected error: \(error)")
+      }
+      XCTAssertEqual(name, "tcsh")
+    }
+    XCTAssertThrowsError(
+      try LoginShell.current(accountShell: nil, environment: ["SHELL": "/bin/csh"])
+    )
+
+    // A supported account shell still wins even when SHELL points at csh.
+    XCTAssertEqual(
+      try LoginShell.current(accountShell: "/bin/zsh", environment: ["SHELL": "/bin/tcsh"])
+        .dialect,
+      .posix
+    )
   }
 
   func testProgramIsConstantAndDataStaysInArgv() throws {

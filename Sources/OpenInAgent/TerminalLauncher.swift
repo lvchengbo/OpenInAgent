@@ -8,9 +8,12 @@ enum TerminalLauncherError: LocalizedError, Sendable {
   case automationDenied(String)
   case timedOut(String)
   case launchFailed(String)
+  case unsupportedLoginShell(String)
 
   var errorDescription: String? {
     switch self {
+    case .unsupportedLoginShell(let name):
+      "Your login shell (\(name)) isn’t supported. Open in Agent can wrap zsh, bash, sh, ksh, dash, ash, mksh, or fish; change your account shell or set SHELL to one of those."
     case .missingTerminal(let name):
       "\(name) is not installed."
     case .missingExecutable(let name):
@@ -139,7 +142,7 @@ enum TerminalLauncher {
   static func launch(
     _ resolvedAgent: ResolvedAgent,
     workingDirectory: URL,
-    loginShell: LoginShell = .current()
+    loginShell: LoginShell? = nil
   ) async throws {
     guard let executableURL = resolvedAgent.executableURL else {
       throw TerminalLauncherError.missingExecutable(
@@ -162,10 +165,17 @@ enum TerminalLauncher {
       throw TerminalLauncherError.missingTerminal(terminal.displayName)
     }
 
+    let shell: LoginShell
+    do {
+      shell = try loginShell ?? LoginShell.current()
+    } catch LoginShellError.unsupportedShell(let name) {
+      throw TerminalLauncherError.unsupportedLoginShell(name)
+    }
+
     let arguments = AgentCommand.arguments(
       executableURL: executableURL,
       workingDirectory: workingDirectory,
-      loginShell: loginShell
+      loginShell: shell
     )
 
     switch terminal {

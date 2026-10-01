@@ -25,6 +25,10 @@ struct LoginShell: Equatable, Sendable {
     "sh", "bash", "zsh", "ksh", "dash", "ash", "mksh",
   ]
 
+  /// Real login shells this wrapper cannot drive: csh dialects do not accept
+  /// the `-l -i -c <program> <argv…>` forwarding that POSIX shells and fish do.
+  private static let unsupportedShellNames: Set<String> = ["csh", "tcsh"]
+
   let executableURL: URL
   let dialect: Dialect
 
@@ -47,13 +51,21 @@ struct LoginShell: Equatable, Sendable {
 
   /// Resolves the current user's login shell from the account record, then the
   /// `SHELL` variable, then macOS's default `/bin/zsh`.
+  ///
+  /// A recognized login shell this wrapper cannot drive (csh/tcsh) is an
+  /// error, not a silent switch to zsh: substituting a different shell drops
+  /// that user's startup environment and `PATH`, breaking the documented
+  /// "user's login shell" guarantee in a way that only surfaces later as
+  /// mysterious command-not-found failures. The zsh fallback remains only for
+  /// accounts with no usable shell at all.
   static func current(
+    accountShell: String? = accountShellPath(),
     environment: [String: String] = ProcessInfo.processInfo.environment,
     fileManager: FileManager = .default
-  ) -> LoginShell {
+  ) throws -> LoginShell {
     var candidates: [String] = []
-    if let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell {
-      candidates.append(String(cString: shell))
+    if let accountShell {
+      candidates.append(accountShell)
     }
     if let shell = environment["SHELL"] {
       candidates.append(shell)
@@ -61,6 +73,10 @@ struct LoginShell: Equatable, Sendable {
     candidates.append(fallbackShellPath)
 
     for candidate in candidates {
+      let name = URL(fileURLWithPath: candidate).lastPathComponent
+      if unsupportedShellNames.contains(name) {
+        throw LoginShellError.unsupportedShell(name)
+      }
       if let shell = LoginShell(shellPath: candidate, fileManager: fileManager) {
         return shell
       }
@@ -72,6 +88,15 @@ struct LoginShell: Equatable, Sendable {
       executableURL: URL(fileURLWithPath: fallbackShellPath),
       dialect: .posix
     )
+  }
+
+  /// The shell recorded for the current account, if any.
+  static func accountShellPath() -> String? {
+    guard let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell else {
+      return nil
+    }
+    let path = String(cString: shell)
+    return path.isEmpty ? nil : path
   }
 
   private init(executableURL: URL, dialect: Dialect) {
@@ -106,4 +131,9 @@ struct LoginShell: Equatable, Sendable {
       return [executableURL.path, "-l", "-i", "-c", program] + command
     }
   }
+}
+
+enum LoginShellError: Error, Sendable {
+  /// The account's login shell is a real shell this wrapper cannot drive.
+  case unsupportedShell(String)
 }

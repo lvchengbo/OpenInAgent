@@ -105,6 +105,17 @@ if grep -nE 'exec \\"\$@\\"|exec \$argv' "$repo_root/Sources/OpenInAgent/LoginSh
   exit 1
 fi
 
+# The check above is fail-open: if both approved constants were deleted it
+# would find nothing and pass. Positively require exactly one of each.
+login_shell_source="$repo_root/Sources/OpenInAgent/LoginShell.swift"
+posix_constants="$(grep -cE '^\s+"exec \\"\$@\\""$' "$login_shell_source" || true)"
+fish_constants="$(grep -cE '^\s+"exec \$argv"$' "$login_shell_source" || true)"
+if [[ "$posix_constants" != "1" || "$fish_constants" != "1" ]]; then
+  echo "ERROR: LoginShell must define exactly one POSIX and one fish program constant" \
+    "(found $posix_constants POSIX, $fish_constants fish)" >&2
+  exit 1
+fi
+
 if grep -rnE --include='*.swift' \
   'NSAppleScript|osascript|Process\s*\(|/bin/(ba)?sh|/bin/zsh' \
   "$repo_root/Sources/OpenInAgentFinderExtension" \

@@ -22,7 +22,38 @@ verify_bundle() {
   codesign --verify --strict --verbose=2 "$copy_path_extension"
 }
 
+# PIDs of this user's processes whose executable is one of the installed
+# bundle's three binaries. `ps -o comm=` reports the executable path (not the
+# argv), so the comparison is an exact, literal string match: spaces and regex
+# metacharacters in "Open in Agent.app" need no escaping, and a same-user
+# development copy running an identically named binary from Xcode or .build is
+# left untouched because its path differs.
+installed_component_pids() {
+  local uid pid executable
+  uid="$(/usr/bin/id -u)"
+  local finder_executable="$extension_path/Contents/MacOS/OpenInAgentFinderExtension"
+  local copy_path_executable="$copy_path_extension_path/Contents/MacOS/CopyPathFinderExtension"
+  local app_executable="$destination/Contents/MacOS/Open in Agent"
+
+  while read -r pid executable; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    if [[ "$executable" == "$finder_executable" \
+      || "$executable" == "$copy_path_executable" \
+      || "$executable" == "$app_executable" ]]
+    then
+      printf '%s\n' "$pid"
+    fi
+  done < <(/bin/ps -ww -U "$uid" -o pid= -o comm= 2>/dev/null)
+}
+
 stop_installed_components() {
+  # Only this user's processes count, and only those running the installed
+  # bundle's own executables (see installed_component_pids): another logged-in
+  # user's copy must not stall the wait below, and we must never signal a
+  # process we do not own or a development copy of the same-named binary.
+
+  # Unregister before killing so Finder cannot respawn the extensions while we
+  # wait for them to exit.
   if [[ -d "$extension_path" ]]; then
     /usr/bin/pluginkit -r "$extension_path" >/dev/null 2>&1 || true
   fi
@@ -30,20 +61,28 @@ stop_installed_components() {
     /usr/bin/pluginkit -r "$copy_path_extension_path" >/dev/null 2>&1 || true
   fi
 
-  /usr/bin/pkill -TERM -x OpenInAgentFinderExtension 2>/dev/null || true
-  /usr/bin/pkill -TERM -x CopyPathFinderExtension 2>/dev/null || true
-  /usr/bin/pkill -TERM -x "Open in Agent" 2>/dev/null || true
+  local pid
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && /bin/kill -TERM "$pid" 2>/dev/null || true
+  done < <(installed_component_pids)
 
   local attempt
   for attempt in {1..30}; do
-    if ! /usr/bin/pgrep -x OpenInAgentFinderExtension >/dev/null \
-      && ! /usr/bin/pgrep -x CopyPathFinderExtension >/dev/null \
-      && ! /usr/bin/pgrep -x "Open in Agent" >/dev/null
-    then
+    if [[ -z "$(installed_component_pids)" ]]; then
       return
     fi
     sleep 0.1
   done
+
+  # The existing install stays in place, so put its extensions back; otherwise
+  # the "not changed" claim below would be false and Finder integration would
+  # be left unregistered with no backup for the rollback trap to restore.
+  if [[ -d "$extension_path" ]]; then
+    /usr/bin/pluginkit -a "$extension_path" >/dev/null 2>&1 || true
+  fi
+  if [[ -d "$copy_path_extension_path" ]]; then
+    /usr/bin/pluginkit -a "$copy_path_extension_path" >/dev/null 2>&1 || true
+  fi
 
   echo "ERROR: Open in Agent is still running; installation was not changed." >&2
   exit 1
