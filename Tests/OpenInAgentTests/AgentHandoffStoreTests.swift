@@ -40,6 +40,76 @@ final class AgentHandoffStoreTests: XCTestCase {
     _ = try fixture.store.consume(activationURL)
   }
 
+  func testSymlinkDirectoryIsRejectedWithoutChangingItsTarget() throws {
+    for request in [FinderToolbarRequest.openAgent(.codex), .copyPath] {
+      let fixture = try makeFixture()
+      defer { fixture.remove() }
+      let outsideURL = fixture.rootURL.appendingPathComponent("unrelated", isDirectory: true)
+      try FileManager.default.createDirectory(at: outsideURL, withIntermediateDirectories: true)
+      try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755],
+        ofItemAtPath: outsideURL.path
+      )
+      let preservedURL = outsideURL.appendingPathComponent("keep.txt")
+      let preservedData = Data("unrelated directory content".utf8)
+      try preservedData.write(to: preservedURL)
+      try FileManager.default.createSymbolicLink(
+        at: fixture.directoryURL,
+        withDestinationURL: outsideURL
+      )
+      let store = AgentHandoffStore(
+        directoryURL: fixture.directoryURL,
+        endpoint: request.endpoint
+      )
+
+      XCTAssertThrowsError(try store.create(request)) { error in
+        guard let storeError = error as? AgentHandoffStoreError,
+          case .unavailableStore = storeError
+        else {
+          return XCTFail("Expected unavailableStore, received \(error)")
+        }
+      }
+      XCTAssertEqual(try permissions(of: outsideURL), 0o755)
+      XCTAssertEqual(try Data(contentsOf: preservedURL), preservedData)
+      XCTAssertEqual(
+        try FileManager.default.contentsOfDirectory(atPath: outsideURL.path),
+        ["keep.txt"]
+      )
+      XCTAssertEqual(
+        try FileManager.default.destinationOfSymbolicLink(atPath: fixture.directoryURL.path),
+        outsideURL.path
+      )
+    }
+  }
+
+  func testOwnedUnreadableDirectoryIsRepairedAndSupportsRoundTrip() throws {
+    for request in [FinderToolbarRequest.openAgent(.codex), .copyPath] {
+      let fixture = try makeFixture()
+      defer { fixture.remove() }
+      try FileManager.default.createDirectory(
+        at: fixture.directoryURL,
+        withIntermediateDirectories: true
+      )
+      try FileManager.default.setAttributes(
+        [.posixPermissions: 0o000],
+        ofItemAtPath: fixture.directoryURL.path
+      )
+      defer { Darwin.chmod(fixture.directoryURL.path, 0o700) }
+      XCTAssertEqual(try permissions(of: fixture.directoryURL), 0o000)
+      let store = AgentHandoffStore(
+        directoryURL: fixture.directoryURL,
+        endpoint: request.endpoint
+      )
+
+      let activationURL = try store.create(request)
+
+      XCTAssertEqual(try permissions(of: fixture.directoryURL), 0o700)
+      XCTAssertEqual(try store.consume(activationURL), request)
+      XCTAssertThrowsError(try store.consume(activationURL))
+      XCTAssertEqual(try fixture.contents(), [])
+    }
+  }
+
   func testExpiredAndFutureRecordsAreRejectedAndDeleted() throws {
     let fixture = try makeFixture()
     defer { fixture.remove() }

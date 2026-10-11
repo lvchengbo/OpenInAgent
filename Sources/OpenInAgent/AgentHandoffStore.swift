@@ -247,7 +247,15 @@ struct AgentHandoffStore {
       throw AgentHandoffStoreError.unavailableStore
     }
 
-    guard Darwin.chmod(directoryURL.path, 0o700) == 0 else {
+    // Check the leaf before repairing permissions, and never follow a symlink
+    // if the path is replaced between this check and the permission change.
+    var status = stat()
+    guard
+      Darwin.lstat(directoryURL.path, &status) == 0,
+      status.st_mode & S_IFMT == S_IFDIR,
+      status.st_uid == Darwin.geteuid(),
+      Darwin.fchmodat(AT_FDCWD, directoryURL.path, 0o700, AT_SYMLINK_NOFOLLOW) == 0
+    else {
       throw AgentHandoffStoreError.unavailableStore
     }
     try validateExistingDirectory()
