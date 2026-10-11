@@ -321,7 +321,9 @@ struct AgentHandoffStore {
   }
 
   private func readValidatedRecord(at url: URL) throws -> Data {
-    let descriptor = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+    // Reject special files after opening without waiting for a FIFO writer or
+    // device. Regular files retain the same descriptor-based validation below.
+    let descriptor = Darwin.open(url.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW)
     guard descriptor >= 0 else {
       throw AgentHandoffStoreError.invalidRequest
     }

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 
@@ -110,6 +111,14 @@ final class AgentHandoffStoreTests: XCTestCase {
       try permissionsFixture.store.consume(permissionsURL)
     )
     XCTAssertEqual(try permissionsFixture.contents(), [])
+  }
+
+  func testFIFOAgentRecordIsRejectedWithoutBlockingAndDeleted() throws {
+    try assertFIFORecordIsRejectedWithoutBlocking(.openAgent(.codex))
+  }
+
+  func testFIFOCopyPathRecordIsRejectedWithoutBlockingAndDeleted() throws {
+    try assertFIFORecordIsRejectedWithoutBlocking(.copyPath)
   }
 
   func testMalformedOversizedAndRelativeTargetRecordsAreRejected() throws {
@@ -231,6 +240,66 @@ final class AgentHandoffStoreTests: XCTestCase {
         isDirectory: true
       )
     )
+  }
+
+  private func assertFIFORecordIsRejectedWithoutBlocking(
+    _ request: FinderToolbarRequest,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) throws {
+    let fixture = try makeFixture()
+    defer { fixture.remove() }
+    let store = AgentHandoffStore(
+      directoryURL: fixture.directoryURL,
+      endpoint: request.endpoint
+    )
+    let activationURL = try store.create(request)
+    let recordURL = try XCTUnwrap(try fixture.contents().only)
+    try FileManager.default.removeItem(at: recordURL)
+    guard Darwin.mkfifo(recordURL.path, 0o600) == 0 else {
+      throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+    }
+
+    // Keep the watchdog's path outside the store so claiming and deleting the
+    // request cannot remove it. A delayed writer releases a regressed blocking
+    // open, letting the timing assertion fail instead of hanging the suite.
+    let guardURL = fixture.rootURL.appendingPathComponent("fifo-guard")
+    guard Darwin.link(recordURL.path, guardURL.path) == 0 else {
+      throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+    }
+    let guardPath = guardURL.path
+    let completed = DispatchSemaphore(value: 0)
+    let watchdogCompleted = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+      defer { watchdogCompleted.signal() }
+      guard completed.wait(timeout: .now() + 1) == .timedOut else { return }
+      let descriptor = Darwin.open(guardPath, O_RDWR | O_NONBLOCK | O_CLOEXEC)
+      guard descriptor >= 0 else { return }
+      defer { Darwin.close(descriptor) }
+      _ = completed.wait(timeout: .now() + 5)
+    }
+    defer {
+      completed.signal()
+      watchdogCompleted.wait()
+    }
+
+    let startedAt = ProcessInfo.processInfo.systemUptime
+    XCTAssertThrowsError(try store.consume(activationURL), file: file, line: line) { error in
+      guard let storeError = error as? AgentHandoffStoreError,
+        case .invalidRequest = storeError
+      else {
+        return XCTFail("Expected invalidRequest, received \(error)", file: file, line: line)
+      }
+    }
+    XCTAssertLessThan(
+      ProcessInfo.processInfo.systemUptime - startedAt,
+      0.5,
+      "Rejecting a FIFO must not wait for a writer",
+      file: file,
+      line: line
+    )
+    XCTAssertEqual(try fixture.contents(), [], file: file, line: line)
+    XCTAssertThrowsError(try store.consume(activationURL), file: file, line: line)
   }
 
   private func makeFixture() throws -> Fixture {
