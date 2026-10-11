@@ -76,10 +76,15 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
   }
 
   private func run(activationURL: URL?) async {
-    let request: AgentLaunchRequest?
+    let request: FinderToolbarRequest?
     if let activationURL {
+      guard let endpoint = FinderHandoffEndpoint(rawValue: activationURL.host?.lowercased() ?? "")
+      else {
+        finish(status: 4)
+        return
+      }
       do {
-        request = try AgentHandoffStore.containingApplication().consume(
+        request = try AgentHandoffStore.containingApplication(endpoint: endpoint).consume(
           activationURL
         )
       } catch {
@@ -92,12 +97,46 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
 
     let finderURL: URL
     if let request {
-      finderURL = request.targetURL
+      if case .openAgent(_, let targetURL?) = request {
+        finderURL = targetURL
+      } else {
+        do {
+          finderURL = try FinderSelection.urlFromCurrentWindow()
+        } catch {
+          presentError(
+            title: "Couldn’t read the Finder location",
+            message: error.localizedDescription,
+            offersAutomationSettings: {
+              if case .automationDenied = error as? FinderSelectionError { return true }
+              return false
+            }()
+          )
+          finish(status: 2)
+          return
+        }
+      }
     } else if let launchURL = FinderSelection.urlFromLaunchArguments() {
       finderURL = launchURL
     } else {
       presentSetup()
       finish(status: 0)
+      return
+    }
+
+    if request == .copyPath {
+      guard FileManager.default.fileExists(atPath: finderURL.path) else {
+        presentError(
+          title: "The selected item isn’t available",
+          message: "Choose an accessible local file or folder and try again."
+        )
+        finish(status: 2)
+        return
+      }
+      let pasteboard = NSPasteboard.general
+      pasteboard.clearContents()
+      let copied = pasteboard.setString(finderURL.path, forType: .string)
+      if !copied { NSSound.beep() }
+      finish(status: copied ? 0 : 2)
       return
     }
 
@@ -116,10 +155,10 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
 
     let agents = ExecutableResolver.resolveAll()
     let selectedAgent: ResolvedAgent
-    if let request {
+    if case .openAgent(let agentID, _) = request {
       guard
         let requestedAgent = agents.first(where: {
-          $0.specification.id == request.agentID
+          $0.specification.id == agentID
         })
       else {
         presentError(

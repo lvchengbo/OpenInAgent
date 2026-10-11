@@ -52,6 +52,8 @@ targets:
       - path: Sources/OpenInAgent/Agent.swift
       - path: Sources/OpenInAgent/AgentLaunchRequest.swift
       - path: Sources/OpenInAgent/AgentHandoffStore.swift
+      - path: Sources/OpenInAgent/FinderToolbarRequest.swift
+      - path: Sources/FinderExtensionSupport
     dependencies:
       - sdk: AppKit.framework
       - sdk: FinderSync.framework
@@ -74,6 +76,11 @@ targets:
     platform: macOS
     sources:
       - path: Sources/CopyPathFinderExtension
+      - path: Sources/OpenInAgent/Agent.swift
+      - path: Sources/OpenInAgent/AgentLaunchRequest.swift
+      - path: Sources/OpenInAgent/AgentHandoffStore.swift
+      - path: Sources/OpenInAgent/FinderToolbarRequest.swift
+      - path: Sources/FinderExtensionSupport
     dependencies:
       - sdk: AppKit.framework
       - sdk: FinderSync.framework

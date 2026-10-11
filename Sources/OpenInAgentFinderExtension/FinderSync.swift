@@ -1,38 +1,13 @@
 import AppKit
 import FinderSync
 import Foundation
-import OSLog
 
 final class FinderSync: FIFinderSync {
-  private static let logger = Logger(
-    subsystem: "com.lvchengbo.openinagent.finderextension",
-    category: "Handoff"
-  )
-
-  private let controller = FIFinderSyncController.default()
-
   override init() {
     super.init()
-
-    refreshMonitoredDirectories()
-
-    let notifications = NSWorkspace.shared.notificationCenter
-    notifications.addObserver(
-      self,
-      selector: #selector(volumesDidChange(_:)),
-      name: NSWorkspace.didMountNotification,
-      object: nil
-    )
-    notifications.addObserver(
-      self,
-      selector: #selector(volumesDidChange(_:)),
-      name: NSWorkspace.didUnmountNotification,
-      object: nil
-    )
-  }
-
-  deinit {
-    NSWorkspace.shared.notificationCenter.removeObserver(self)
+    // Monitored roots acquire the containing app's sidebar icon. This
+    // extension only provides a global toolbar, so it must monitor no folders.
+    FIFinderSyncController.default().directoryURLs = []
   }
 
   override var toolbarItemName: String {
@@ -65,8 +40,6 @@ final class FinderSync: FIFinderSync {
     }
 
     let menu = NSMenu(title: toolbarItemName)
-    let targetURL = currentTargetURL
-
     for agent in AgentCatalog.all {
       let item = NSMenuItem(
         title: "Open in \(agent.displayName)",
@@ -74,7 +47,6 @@ final class FinderSync: FIFinderSync {
         keyEquivalent: ""
       )
       item.target = self
-      item.isEnabled = targetURL != nil
 
       if let image = NSImage(
         systemSymbolName: agent.symbolName,
@@ -85,17 +57,6 @@ final class FinderSync: FIFinderSync {
       }
 
       menu.addItem(item)
-    }
-
-    if targetURL == nil {
-      menu.addItem(.separator())
-      let unavailableItem = NSMenuItem(
-        title: "No Finder location available",
-        action: nil,
-        keyEquivalent: ""
-      )
-      unavailableItem.isEnabled = false
-      menu.addItem(unavailableItem)
     }
 
     return menu
@@ -131,80 +92,6 @@ final class FinderSync: FIFinderSync {
   }
 
   private func openInAgent(_ agentID: AgentID) {
-    guard
-      let targetURL = currentTargetURL,
-      let applicationURL = containingApplicationURL
-    else {
-      NSSound.beep()
-      return
-    }
-
-    let requestURL: URL
-    do {
-      let store = try AgentHandoffStore.finderExtension()
-      requestURL = try store.create(
-        AgentLaunchRequest(agentID: agentID, targetURL: targetURL)
-      )
-    } catch {
-      Self.logger.error("Could not create a secure handoff request")
-      NSSound.beep()
-      return
-    }
-
-    let configuration = NSWorkspace.OpenConfiguration()
-    configuration.activates = false
-    configuration.addsToRecentItems = false
-    configuration.createsNewApplicationInstance = true
-
-    NSWorkspace.shared.open(
-      [requestURL],
-      withApplicationAt: applicationURL,
-      configuration: configuration,
-      completionHandler: { _, error in
-        guard let error else {
-          return
-        }
-
-        Self.logger.error(
-          "Could not hand off request to the containing app: \(error.localizedDescription, privacy: .public)"
-        )
-        DispatchQueue.main.async {
-          NSSound.beep()
-        }
-      }
-    )
-  }
-
-  private var currentTargetURL: URL? {
-    let selectedURLs = controller.selectedItemURLs() ?? []
-    return selectedURLs.first ?? controller.targetedURL()
-  }
-
-  private var containingApplicationURL: URL? {
-    var candidate = Bundle.main.bundleURL
-
-    while candidate.path != "/" {
-      if candidate.pathExtension.caseInsensitiveCompare("app") == .orderedSame {
-        return candidate
-      }
-      candidate.deleteLastPathComponent()
-    }
-
-    return nil
-  }
-
-  @objc private func volumesDidChange(_ notification: Notification) {
-    refreshMonitoredDirectories()
-  }
-
-  private func refreshMonitoredDirectories() {
-    let resourceKeys: [URLResourceKey] = [.isHiddenKey, .isVolumeKey]
-    let mountedVolumes =
-      FileManager.default.mountedVolumeURLs(
-        includingResourceValuesForKeys: resourceKeys,
-        options: [.skipHiddenVolumes]
-      ) ?? []
-
-    controller.directoryURLs = Set(mountedVolumes)
+    ToolbarHandoff.send(.openAgent(agentID))
   }
 }

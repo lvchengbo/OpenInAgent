@@ -23,10 +23,17 @@ the shortcut cannot own a native dropdown menu.
 
 OpenInAgent instead embeds two sandboxed Finder Sync extensions. Finder renders
 their 23-point template icons, hover states, spacing, labels, and native menus.
-The Open in Agent extension captures the selected URL and agent choice; the
-short-lived containing app performs terminal launching. The independent Copy
-Path extension writes the selected item—or current Finder directory when
-nothing is selected—to the clipboard.
+The extensions hand off the chosen action to the short-lived containing app.
+The host reads the selected item—or current Finder directory when nothing is
+selected—and either launches the chosen agent or copies its POSIX path.
+
+Neither extension monitors directories. Registering every mounted volume as a
+Finder Sync root lets Finder replace each volume's native sidebar icon with the
+containing app's icon. Monitoring only `/` does not provide selection context
+on external volumes. The toolbar is globally available without monitoring;
+reading the location through Finder Automation preserves native sidebar icons
+and supports external volume roots, mounted disk images, and their contents.
+See [Apple's Finder Sync documentation](https://developer.apple.com/library/archive/documentation/General/Conceptual/ExtensibilityPG/Finder.html).
 
 ## Build and verify
 
@@ -89,16 +96,17 @@ Then configure Finder once:
 
 If either native item is missing, open the containing app once and choose
 **Open Extension Settings**, then enable both Finder extensions. The first
-launch into Ghostty or iTerm may ask permission to control that app under System
-Settings → Privacy & Security → Automation, because Open in Agent drives both
-terminals through AppleScript. Finder access itself does not require an
-Automation prompt because Finder supplies the selection to its extension.
+use of either button asks permission to read Finder under System Settings →
+Privacy & Security → Automation. Allow Finder so the host can read the selected
+item or current folder. Launching an agent may also ask permission for Ghostty
+or iTerm. If Finder access is denied or its location is unavailable, the host
+reports the problem and performs no clipboard or terminal action.
 
 ### Signing upgrades
 
 Local builds use matching ad-hoc hardened-runtime signatures for the containing
 app and embedded extensions. The utility is fully usable on this Mac, but macOS
-may ask for Ghostty or iTerm Automation permission again after a rebuild because
+may ask for Finder, Ghostty, or iTerm Automation permission again after a rebuild because
 an ad-hoc identity is tied to that exact binary.
 
 If this Mac later has a stable code-signing identity, build with it to preserve
@@ -119,10 +127,13 @@ repository targets a personal local installation rather than App Store review.
 
 - Both Finder extensions are sandboxed and never invoke a shell, AppleScript,
   or terminal.
-- The extension writes a short-lived, owner-only request into its private
+- Each extension writes a short-lived, owner-only request into its private
   sandbox container. Its activation URL carries only a random one-time UUID;
   the backend atomically consumes the record and rejects replay, stale data,
   symlinks, loose permissions, malformed records, and nonlocal file URLs.
+- The host uses constant AppleScript to read Finder; filenames are returned as
+  data and never inserted into script source. Copy Path copies the selected
+  item's path without converting files or packages to their parent directory.
 - Each agent is wrapped in the user's interactive login shell with a constant
   `-c` program, so it inherits the same `PATH` it would when typed into a
   terminal while the selected path travels only as argv.
@@ -145,6 +156,7 @@ See [SECURITY.md](SECURITY.md) for the detailed boundaries.
 Sources/OpenInAgent/                 One-shot host and terminal launchers
 Sources/OpenInAgentFinderExtension/  Native Finder toolbar/menu extension
 Sources/CopyPathFinderExtension/     Independent Copy Path toolbar extension
+Sources/FinderExtensionSupport/     Shared sandbox-to-host toolbar handoff
 FinderExtension/                     Extension plist and sandbox entitlement
 CopyPathFinderExtension/             Copy Path extension plist
 Tests/OpenInAgentTests/              Routing, lifecycle, and adversarial tests

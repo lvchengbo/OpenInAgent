@@ -20,7 +20,10 @@ final class AgentHandoffStoreTests: XCTestCase {
     XCTAssertNil(activationURL.query)
     XCTAssertFalse(activationURL.absoluteString.contains("codex"))
     XCTAssertFalse(activationURL.absoluteString.contains("project"))
-    XCTAssertEqual(try fixture.store.consume(activationURL), request)
+    XCTAssertEqual(
+      try fixture.store.consume(activationURL),
+      .openAgent(request.agentID, targetURL: request.targetURL)
+    )
     XCTAssertThrowsError(try fixture.store.consume(activationURL))
     XCTAssertEqual(try fixture.contents(), [])
   }
@@ -129,10 +132,11 @@ final class AgentHandoffStoreTests: XCTestCase {
     let relativeRecordURL = try XCTUnwrap(try fixture.contents().only)
     let token = relativeURL.lastPathComponent
     let record: [String: Any] = [
-      "version": 1,
+      "version": 2,
       "token": token,
       "createdAt": fixture.clock.value.timeIntervalSince1970,
       "agent": "codex",
+      "action": "openAgent",
       "target": "file:relative",
     ]
     try JSONSerialization.data(withJSONObject: record).write(
@@ -143,10 +147,11 @@ final class AgentHandoffStoreTests: XCTestCase {
     let unknownAgentURL = try fixture.store.create(makeRequest())
     let unknownAgentRecordURL = try XCTUnwrap(try fixture.contents().only)
     let unknownAgentRecord: [String: Any] = [
-      "version": 1,
+      "version": 2,
       "token": unknownAgentURL.lastPathComponent,
       "createdAt": fixture.clock.value.timeIntervalSince1970,
       "agent": "unknown",
+      "action": "openAgent",
       "target": "file:///tmp/project",
     ]
     try JSONSerialization.data(withJSONObject: unknownAgentRecord).write(
@@ -163,6 +168,59 @@ final class AgentHandoffStoreTests: XCTestCase {
       )
     )
     XCTAssertEqual(try fixture.contents(), [])
+  }
+
+  func testGlobalAgentRequestDefersFinderSelectionAndRemainsSingleUse() throws {
+    let fixture = try makeFixture()
+    defer { fixture.remove() }
+    let url = try fixture.store.create(.openAgent(.codex))
+
+    XCTAssertEqual(try fixture.store.consume(url), .openAgent(.codex))
+    XCTAssertThrowsError(try fixture.store.consume(url))
+    XCTAssertEqual(try fixture.contents(), [])
+  }
+
+  func testCopyPathUsesItsOwnContainerEndpointAndCannotLaunchAnAgent() throws {
+    let fixture = try makeFixture()
+    defer { fixture.remove() }
+    let copyStore = AgentHandoffStore(directoryURL: fixture.directoryURL, endpoint: .copyPath)
+    let url = try copyStore.create(.copyPath)
+
+    XCTAssertEqual(url.host, "copy-path")
+    // The host must select the fixed Copy Path container before consuming it.
+    XCTAssertThrowsError(try fixture.store.consume(url))
+    XCTAssertEqual(try copyStore.consume(url), .copyPath)
+    XCTAssertThrowsError(try copyStore.consume(url))
+    XCTAssertThrowsError(try copyStore.create(.openAgent(.codex)))
+    XCTAssertThrowsError(try fixture.store.create(.copyPath))
+    XCTAssertEqual(try fixture.contents(), [])
+  }
+
+  func testTamperedActionAndUnexpectedCopyPathFieldsAreRejected() throws {
+    let fixture = try makeFixture()
+    defer { fixture.remove() }
+    let copyStore = AgentHandoffStore(directoryURL: fixture.directoryURL, endpoint: .copyPath)
+    let invalidFields: [[String: Any]] = [
+      ["action": "openAgent", "agent": "codex"],
+      ["action": "copyPath", "agent": "codex"],
+      ["action": "copyPath", "target": "file:///tmp"],
+      ["action": "unknown"],
+      ["action": "copyPath", "version": 1],
+    ]
+
+    for fields in invalidFields {
+      let url = try copyStore.create(.copyPath)
+      let recordURL = try XCTUnwrap(try fixture.contents().only)
+      var record: [String: Any] = [
+        "version": 2,
+        "token": url.lastPathComponent,
+        "createdAt": fixture.clock.value.timeIntervalSince1970,
+      ]
+      record.merge(fields) { _, replacement in replacement }
+      try JSONSerialization.data(withJSONObject: record).write(to: recordURL)
+      XCTAssertThrowsError(try copyStore.consume(url), "\(fields)")
+      XCTAssertEqual(try fixture.contents(), [])
+    }
   }
 
   private func makeRequest() -> AgentLaunchRequest {

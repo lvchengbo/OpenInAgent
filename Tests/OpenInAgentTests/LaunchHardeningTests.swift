@@ -66,10 +66,11 @@ final class LaunchHardeningTests: XCTestCase {
     )
 
     let tampered: [String: Any] = [
-      "version": 1,
+      "version": 2,
       "token": UUID().uuidString,
       "createdAt": Date().timeIntervalSince1970,
       "agent": "claude",
+      "action": "openAgent",
       "target": "file:///tmp",
     ]
     try JSONSerialization.data(withJSONObject: tampered).write(to: recordURL)

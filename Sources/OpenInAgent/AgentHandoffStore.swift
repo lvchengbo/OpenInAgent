@@ -10,10 +10,7 @@ enum AgentHandoffStoreError: Error {
 }
 
 struct AgentHandoffStore {
-  static let extensionBundleIdentifier =
-    "com.lvchengbo.openinagent.finderextension"
-
-  private static let recordVersion = 1
+  private static let recordVersion = 2
   private static let maximumRecordSize = 16 * 1024
   private static let maximumAge: TimeInterval = 60
   private static let maximumFutureSkew: TimeInterval = 5
@@ -21,17 +18,21 @@ struct AgentHandoffStore {
   private static let cleanupLimit = 64
 
   private let directoryURL: URL
+  private let endpoint: FinderHandoffEndpoint
   private let clock: () -> Date
 
   init(
     directoryURL: URL,
+    endpoint: FinderHandoffEndpoint = .agent,
     clock: @escaping () -> Date = Date.init
   ) {
     self.directoryURL = directoryURL.standardizedFileURL
+    self.endpoint = endpoint
     self.clock = clock
   }
 
   static func finderExtension(
+    endpoint: FinderHandoffEndpoint = .agent,
     fileManager: FileManager = .default,
     clock: @escaping () -> Date = Date.init
   ) throws -> AgentHandoffStore {
@@ -46,11 +47,13 @@ struct AgentHandoffStore {
         applicationSupport
         .appendingPathComponent("OpenInAgent", isDirectory: true)
         .appendingPathComponent("Handoffs", isDirectory: true),
+      endpoint: endpoint,
       clock: clock
     )
   }
 
   static func containingApplication(
+    endpoint: FinderHandoffEndpoint = .agent,
     homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
     clock: @escaping () -> Date = Date.init
   ) -> AgentHandoffStore {
@@ -58,21 +61,43 @@ struct AgentHandoffStore {
       directoryURL:
         homeDirectory
         .appendingPathComponent("Library/Containers", isDirectory: true)
-        .appendingPathComponent(extensionBundleIdentifier, isDirectory: true)
+        .appendingPathComponent(endpoint.extensionBundleIdentifier, isDirectory: true)
         .appendingPathComponent("Data/Library/Application Support", isDirectory: true)
         .appendingPathComponent("OpenInAgent", isDirectory: true)
         .appendingPathComponent("Handoffs", isDirectory: true),
+      endpoint: endpoint,
       clock: clock
     )
   }
 
   func create(_ request: AgentLaunchRequest) throws -> URL {
-    guard
-      let targetURL = AgentLaunchRequest.validatedTargetURL(
-        request.targetURL
-      )
-    else {
+    try create(.openAgent(request.agentID, targetURL: request.targetURL))
+  }
+
+  func create(_ request: FinderToolbarRequest) throws -> URL {
+    guard request.endpoint == endpoint else {
       throw AgentHandoffStoreError.invalidRequest
+    }
+
+    let action: String
+    let agent: String?
+    let target: String?
+    switch request {
+    case .openAgent(let agentID, let targetURL):
+      action = "openAgent"
+      agent = agentID.rawValue
+      if let targetURL {
+        guard let validated = AgentLaunchRequest.validatedTargetURL(targetURL) else {
+          throw AgentHandoffStoreError.invalidRequest
+        }
+        target = validated.absoluteString
+      } else {
+        target = nil
+      }
+    case .copyPath:
+      action = "copyPath"
+      agent = nil
+      target = nil
     }
 
     try prepareDirectoryForWriting()
@@ -84,8 +109,9 @@ struct AgentHandoffStore {
         version: Self.recordVersion,
         token: token.uuidString,
         createdAt: clock().timeIntervalSince1970,
-        agent: request.agentID.rawValue,
-        target: targetURL.absoluteString
+        action: action,
+        agent: agent,
+        target: target
       )
       let data = try JSONEncoder().encode(record)
       guard data.count <= Self.maximumRecordSize else {
@@ -94,15 +120,15 @@ struct AgentHandoffStore {
 
       let recordURL = requestURL(for: token)
       if try createExclusiveFile(at: recordURL, data: data) {
-        return Self.activationURL(for: token)
+        return activationURL(for: token)
       }
     }
 
     throw AgentHandoffStoreError.couldNotCreateRecord
   }
 
-  func consume(_ activationURL: URL) throws -> AgentLaunchRequest {
-    guard let token = Self.token(from: activationURL) else {
+  func consume(_ activationURL: URL) throws -> FinderToolbarRequest {
+    guard let token = token(from: activationURL) else {
       throw AgentHandoffStoreError.invalidActivationURL
     }
     try validateExistingDirectory()
@@ -128,33 +154,52 @@ struct AgentHandoffStore {
       record.version == Self.recordVersion,
       record.token == token.uuidString,
       age >= -Self.maximumFutureSkew,
-      age <= Self.maximumAge,
-      let agentID = AgentID(rawValue: record.agent),
-      let rawTargetURL = URL(string: record.target),
-      let targetURL = AgentLaunchRequest.validatedTargetURL(rawTargetURL)
+      age <= Self.maximumAge
     else {
       throw AgentHandoffStoreError.invalidRequest
     }
 
-    return AgentLaunchRequest(agentID: agentID, targetURL: targetURL)
+    switch (endpoint, record.action) {
+    case (.agent, "openAgent"):
+      guard let agent = record.agent, let agentID = AgentID(rawValue: agent) else {
+        throw AgentHandoffStoreError.invalidRequest
+      }
+      let targetURL: URL?
+      if let target = record.target {
+        guard
+          let rawURL = URL(string: target),
+          let validated = AgentLaunchRequest.validatedTargetURL(rawURL)
+        else {
+          throw AgentHandoffStoreError.invalidRequest
+        }
+        targetURL = validated
+      } else {
+        targetURL = nil
+      }
+      return .openAgent(agentID, targetURL: targetURL)
+    case (.copyPath, "copyPath") where record.agent == nil && record.target == nil:
+      return .copyPath
+    default:
+      throw AgentHandoffStoreError.invalidRequest
+    }
   }
 
-  private static func activationURL(for token: UUID) -> URL {
+  private func activationURL(for token: UUID) -> URL {
     var components = URLComponents()
     components.scheme = AgentLaunchRequest.scheme
-    components.host = AgentLaunchRequest.host
+    components.host = endpoint.rawValue
     components.path = "/\(token.uuidString)"
     return components.url!
   }
 
-  private static func token(from activationURL: URL) -> UUID? {
+  private func token(from activationURL: URL) -> UUID? {
     guard
       let components = URLComponents(
         url: activationURL,
         resolvingAgainstBaseURL: false
       ),
       components.scheme?.lowercased() == AgentLaunchRequest.scheme,
-      components.host?.lowercased() == AgentLaunchRequest.host,
+      components.host?.lowercased() == endpoint.rawValue,
       components.user == nil,
       components.password == nil,
       components.port == nil,
@@ -367,6 +412,7 @@ private struct Record: Codable {
   let version: Int
   let token: String
   let createdAt: TimeInterval
-  let agent: String
-  let target: String
+  let action: String
+  let agent: String?
+  let target: String?
 }

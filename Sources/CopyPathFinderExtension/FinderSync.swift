@@ -3,30 +3,11 @@ import FinderSync
 import Foundation
 
 final class FinderSync: FIFinderSync {
-  private let controller = FIFinderSyncController.default()
-
   override init() {
     super.init()
-
-    refreshMonitoredDirectories()
-
-    let notifications = NSWorkspace.shared.notificationCenter
-    notifications.addObserver(
-      self,
-      selector: #selector(volumesDidChange(_:)),
-      name: NSWorkspace.didMountNotification,
-      object: nil
-    )
-    notifications.addObserver(
-      self,
-      selector: #selector(volumesDidChange(_:)),
-      name: NSWorkspace.didUnmountNotification,
-      object: nil
-    )
-  }
-
-  deinit {
-    NSWorkspace.shared.notificationCenter.removeObserver(self)
+    // Registering a volume as a sync root replaces its native sidebar icon.
+    // The host reads Finder's location when the global toolbar button is used.
+    FIFinderSyncController.default().directoryURLs = []
   }
 
   override var toolbarItemName: String {
@@ -59,45 +40,8 @@ final class FinderSync: FIFinderSync {
     }
 
     // Finder Sync exposes this menu request as the toolbar click callback.
-    // Handle the click immediately and return no menu so copying is one step.
-    // Only a local file URL has a meaningful POSIX path: for
-    // `file://server/share/item`, `.path` would silently drop the authority.
-    guard
-      let targetURL = currentTargetURL,
-      targetURL.isFileURL,
-      (targetURL.host ?? "").isEmpty
-    else {
-      NSSound.beep()
-      return nil
-    }
-
-    let pasteboard = NSPasteboard.general
-    pasteboard.clearContents()
-    guard pasteboard.setString(targetURL.path, forType: .string) else {
-      NSSound.beep()
-      return nil
-    }
-
+    // Keep the one-click operation; the host reads Finder and copies the path.
+    ToolbarHandoff.send(.copyPath)
     return nil
-  }
-
-  private var currentTargetURL: URL? {
-    let selectedURLs = controller.selectedItemURLs() ?? []
-    return selectedURLs.first ?? controller.targetedURL()
-  }
-
-  @objc private func volumesDidChange(_ notification: Notification) {
-    refreshMonitoredDirectories()
-  }
-
-  private func refreshMonitoredDirectories() {
-    let resourceKeys: [URLResourceKey] = [.isHiddenKey, .isVolumeKey]
-    let mountedVolumes =
-      FileManager.default.mountedVolumeURLs(
-        includingResourceValuesForKeys: resourceKeys,
-        options: [.skipHiddenVolumes]
-      ) ?? []
-
-    controller.directoryURLs = Set(mountedVolumes)
   }
 }

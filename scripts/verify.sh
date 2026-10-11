@@ -119,7 +119,8 @@ fi
 if grep -rnE --include='*.swift' \
   'NSAppleScript|osascript|Process\s*\(|/bin/(ba)?sh|/bin/zsh' \
   "$repo_root/Sources/OpenInAgentFinderExtension" \
-  "$repo_root/Sources/CopyPathFinderExtension"; then
+  "$repo_root/Sources/CopyPathFinderExtension" \
+  "$repo_root/Sources/FinderExtensionSupport"; then
   echo "ERROR: shell or AppleScript usage found in Finder extension" >&2
   exit 1
 fi

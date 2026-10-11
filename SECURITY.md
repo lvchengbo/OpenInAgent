@@ -7,31 +7,34 @@ input. Legal macOS filenames can contain spaces, quotes, backticks, shell
 metacharacters, and newlines, so no selected path may become executable source
 text.
 
-Both Finder Sync extensions are App-Sandboxed. They read the current Finder
-selection only while Finder is constructing a menu or invoking a menu action.
-The Agent extension sends a strictly structured request to the containing app;
-the Copy Path extension writes only the selected local POSIX path to the system
-clipboard. Neither extension resolves commands, runs processes, uses Apple
-Events, or launches a terminal.
+Both Finder Sync extensions are App-Sandboxed and register no monitored
+directories, preserving native sidebar icons. They send strictly structured
+toolbar actions to the containing app. Neither extension resolves commands,
+runs processes, uses Apple Events, writes the clipboard, or launches a terminal.
 
 The short-lived containing app is intentionally not App-Sandboxed because it
 launches locally installed command-line tools. It requests Apple Events access
-because it drives both Ghostty and iTerm through AppleScript. It does not
-request Full Disk Access, Accessibility, administrator privileges, or Finder
-Automation.
+because it reads Finder's selection/current directory and drives Ghostty and
+iTerm through constant AppleScript. Finder Automation is required for both
+toolbar buttons. It does not request Full Disk Access, Accessibility, or
+administrator privileges. A denied or unavailable Finder location produces an
+error without falling back to the home directory or changing the clipboard.
 
 ## Finder handoff
 
 The extension stores a small versioned request inside its private App Sandbox
 container. The directory is mode `0700`, each request is created exclusively at
 mode `0600`, and—besides its version, token, and timestamp—the record contains
-exactly two command inputs:
+an allowlisted operation and its applicable inputs:
 
-- one `AgentID` from the fixed Claude/Codex/Grok/AGY enum;
-- one percent-encoded local file URL supplied by Finder.
+- `openAgent`: one `AgentID` from the fixed Claude/Codex/Grok/AGY enum, with an
+  optional validated local file URL; omitting the URL asks the host to read Finder;
+- `copyPath`: no agent or target fields; the host reads Finder and copies the path.
 
 The extension then asks LaunchServices to open its containing app with an
-`openinagent://launch/<UUID>` URL. This public activation URL contains only an
+`openinagent://launch/<UUID>` or `openinagent://copy-path/<UUID>` URL. The endpoint
+selects one of two fixed extension containers and restricts which operation it
+can request. This public activation URL contains only an
 unguessable one-time token—never the agent or selected path.
 
 The host reconstructs the record name only from a canonical UUID, atomically
@@ -40,16 +43,20 @@ deletes the claim after reading. It rejects replay, records older than 60
 seconds or more than 5 seconds in the future, records over 16 KiB, symlinks,
 nonregular or non-user-owned files, loose permissions, unknown agents, relative
 or remote file URLs, and nested user information, ports, queries, or fragments.
-Invalid tokens exit silently so arbitrary callers cannot create alert spam.
+Unknown operations, an operation from the wrong endpoint, extra Copy Path
+agent/target fields, and old record versions are also rejected. Invalid tokens
+exit silently so arbitrary callers cannot create alert spam.
 
 macOS gives other sandboxed apps no access to this extension’s container, so
 they cannot manufacture a valid record even though they can invoke the public
 URL scheme. An unsandboxed process running as the same user can inspect the
 container, but already has equivalent process-launch authority.
 
-After consuming the record, the host independently checks that the selected
-item still exists. No executable path, terminal argument, or free-form command
-crosses the extension boundary.
+After consuming the record, the host reads Finder when needed through a
+constant AppleScript with a ten-second timeout. AppleScript returns a POSIX
+path as data; newlines and trailing spaces are preserved. The host independently
+checks that the selected item still exists. No executable path, terminal
+argument, or free-form command crosses the extension boundary.
 
 Finder aliases are resolved without UI and without mounting unavailable
 volumes. Selecting a file or package resolves only to its parent; selecting a
@@ -136,7 +143,7 @@ code-signing requirements, so software substitution within those configured
 locations remains a user-installation risk.
 
 The containing app and both embedded extensions are signed inside-out with the
-same identity. Local builds use ad-hoc signing, so Ghostty or iTerm Automation
+same identity. Local builds use ad-hoc signing, so Finder, Ghostty, or iTerm Automation
 consent may need to be granted again after rebuilding. `scripts/build-app.sh` supports a
 stable identity through `OPEN_IN_AGENT_SIGNING=identity`; public distribution
 still requires Developer ID signing and notarization.

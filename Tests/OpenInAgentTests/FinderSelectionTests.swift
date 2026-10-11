@@ -4,6 +4,27 @@ import XCTest
 @testable import OpenInAgent
 
 final class FinderSelectionTests: XCTestCase {
+  func testFinderPathPreservesLiteralCharactersAndTrailingWhitespace() throws {
+    let paths = [
+      "/Volumes/SAMSUNG T7 Shield 4TB",
+      "/Volumes/DeepL",
+      "/tmp/ project ' \" \\ $() `cmd`; & # ? % 组合—🙂 \n\n",
+      "/",
+    ]
+    for path in paths {
+      XCTAssertEqual(
+        FinderSelection.urlFromFinderPath(path)?.path,
+        path
+      )
+    }
+  }
+
+  func testFinderPathRejectsMissingRelativeAndInvalidPaths() {
+    for path in ["", "relative", "file://server/share", "/tmp/invalid\0name"] {
+      XCTAssertNil(FinderSelection.urlFromFinderPath(path), path)
+    }
+  }
+
   func testLaunchArgumentAcceptsExistingFile() throws {
     let file = FileManager.default.temporaryDirectory
       .appendingPathComponent("OpenInAgent-\(UUID().uuidString)")
