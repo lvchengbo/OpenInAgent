@@ -57,7 +57,7 @@ final class LoginShellTests: XCTestCase {
 
     XCTAssertEqual(
       shell.arguments(executing: command),
-      ["/bin/zsh", "-l", "-i", "-c", "exec \"$@\"", "open-in-agent"] + command
+      ["/bin/zsh", "+m", "-l", "-i", "-c", "exec \"$@\"", "open-in-agent"] + command
     )
     XCTAssertFalse(shell.program.contains("/tmp"))
     XCTAssertFalse(shell.program.contains("\\("))

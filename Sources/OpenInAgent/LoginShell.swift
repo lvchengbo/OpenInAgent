@@ -126,7 +126,7 @@ struct LoginShell: Equatable, Sendable {
     precondition(!command.isEmpty, "A command is required")
     switch dialect {
     case .posix:
-      return [executableURL.path, "-l", "-i", "-c", program, Self.argumentZero] + command
+      return [executableURL.path, "+m", "-l", "-i", "-c", program, Self.argumentZero] + command
     case .fish:
       return [executableURL.path, "-l", "-i", "-c", program] + command
     }

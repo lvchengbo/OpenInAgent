@@ -17,6 +17,7 @@ final class TerminalLauncherTests: XCTestCase {
       ),
       [
         "/bin/zsh",
+        "+m",
         "-l",
         "-i",
         "-c",
