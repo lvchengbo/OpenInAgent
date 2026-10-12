@@ -138,8 +138,7 @@ final class FinderSync: FIFinderSync {
   }
 
   @objc private func openConfigFile(_ sender: NSMenuItem) {
-    let url = ConfigStorage.ensureConfigFileExists()
-    NSWorkspace.shared.open(url)
+    ToolbarHandoff.send(.openConfigFile)
   }
 
   private func openInAgent(_ agentID: AgentID) {

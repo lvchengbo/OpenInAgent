@@ -98,6 +98,10 @@ struct AgentHandoffStore {
       action = "copyPath"
       agent = nil
       target = nil
+    case .openConfigFile:
+      action = "openConfigFile"
+      agent = nil
+      target = nil
     }
 
     try prepareDirectoryForWriting()
@@ -177,6 +181,8 @@ struct AgentHandoffStore {
         targetURL = nil
       }
       return .openAgent(agentID, targetURL: targetURL)
+    case (.agent, "openConfigFile") where record.agent == nil && record.target == nil:
+      return .openConfigFile
     case (.copyPath, "copyPath") where record.agent == nil && record.target == nil:
       return .copyPath
     default:

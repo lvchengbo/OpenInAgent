@@ -5,10 +5,11 @@ import Foundation
 enum FinderToolbarRequest: Equatable, Sendable {
   case openAgent(AgentID, targetURL: URL? = nil)
   case copyPath
+  case openConfigFile
 
   var endpoint: FinderHandoffEndpoint {
     switch self {
-    case .openAgent: .agent
+    case .openAgent, .openConfigFile: .agent
     case .copyPath: .copyPath
     }
   }

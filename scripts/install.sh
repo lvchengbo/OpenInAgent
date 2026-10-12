@@ -250,7 +250,11 @@ if [[ ! -f "$config_dir/config.json" && ! -f "$container_support/config.json" ]]
 EOF
 fi
 
-if [[ -f "$container_support/config.json" && ! -e "$config_dir/config.json" ]]; then
+if [[ -f "$config_dir/config.json" && ! -f "$container_support/config.json" ]]; then
+  cp "$config_dir/config.json" "$container_support/config.json"
+fi
+
+if [[ -f "$container_support/config.json" && ! -f "$config_dir/config.json" ]]; then
   ln -sf "$container_support/config.json" "$config_dir/config.json"
 fi
 

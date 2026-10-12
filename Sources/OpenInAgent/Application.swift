@@ -95,6 +95,13 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
       request = nil
     }
 
+    if request == .openConfigFile {
+      let fileURL = ConfigStorage.ensureConfigFileExists()
+      NSWorkspace.shared.open(fileURL)
+      finish(status: 0)
+      return
+    }
+
     let finderURL: URL
     if let request {
       if case .openAgent(_, let targetURL?) = request {
