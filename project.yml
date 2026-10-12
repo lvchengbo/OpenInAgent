@@ -53,6 +53,7 @@ targets:
       - path: Sources/OpenInAgent/AgentLaunchRequest.swift
       - path: Sources/OpenInAgent/AgentHandoffStore.swift
       - path: Sources/OpenInAgent/FinderToolbarRequest.swift
+      - path: Sources/OpenInAgent/OpenInAgentConfig.swift
       - path: Sources/FinderExtensionSupport
     dependencies:
       - sdk: AppKit.framework

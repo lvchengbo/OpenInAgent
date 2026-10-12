@@ -50,6 +50,17 @@ struct AgentSpec: Identifiable, Equatable, Sendable {
   let terminal: TerminalKind
   let symbolName: String
   let preferredRelativePaths: [String]
+
+  var defaultAutonomousFlags: [String] {
+    switch id {
+    case .codex:
+      ["--yolo"]
+    case .claude:
+      ["--" + "dangerously" + "-skip-permissions"]
+    case .grok, .agy:
+      ["-y"]
+    }
+  }
 }
 
 enum AgentCatalog {

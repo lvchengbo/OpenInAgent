@@ -39,7 +39,8 @@ enum AgentCommand {
   /// `PWD` even if the terminal's own working-directory setting is overridden.
   static func environmentArguments(
     executableURL: URL,
-    workingDirectory: URL
+    workingDirectory: URL,
+    arguments: [String] = []
   ) -> [String] {
     let directoryPath = workingDirectory.path
     return [
@@ -49,7 +50,7 @@ enum AgentCommand {
       "--",
       "PWD=\(directoryPath)",
       executableURL.path,
-    ]
+    ] + arguments
   }
 
   /// The complete argv: the user's interactive login shell wrapping the
@@ -58,12 +59,14 @@ enum AgentCommand {
   static func arguments(
     executableURL: URL,
     workingDirectory: URL,
-    loginShell: LoginShell
+    loginShell: LoginShell,
+    arguments: [String] = []
   ) -> [String] {
     loginShell.arguments(
       executing: environmentArguments(
         executableURL: executableURL,
-        workingDirectory: workingDirectory
+        workingDirectory: workingDirectory,
+        arguments: arguments
       )
     )
   }
@@ -221,7 +224,19 @@ enum TerminalLauncher {
       throw TerminalLauncherError.invalidWorkingDirectory
     }
 
-    let terminal = resolvedAgent.specification.terminal
+    let config = ConfigStorage.load()
+    let isYolo = (config.mode == .yolo)
+    let agentConfig = config.agents[resolvedAgent.specification.id.rawValue]
+
+    let terminal: TerminalKind
+    if let terminalString = agentConfig?.terminal,
+      let overriddenTerminal = TerminalKind(rawValue: terminalString)
+    {
+      terminal = overriddenTerminal
+    } else {
+      terminal = resolvedAgent.specification.terminal
+    }
+
     guard isTerminalInstalled(terminal) else {
       throw TerminalLauncherError.missingTerminal(terminal.displayName)
     }
@@ -236,10 +251,16 @@ enum TerminalLauncher {
       throw TerminalLauncherError.unsupportedLoginShell(name)
     }
 
+    var extraFlags: [String] = []
+    if isYolo {
+      extraFlags = agentConfig?.flags ?? resolvedAgent.specification.defaultAutonomousFlags
+    }
+
     let arguments = AgentCommand.arguments(
       executableURL: executableURL,
       workingDirectory: workingDirectory,
-      loginShell: shell
+      loginShell: shell,
+      arguments: extraFlags
     )
 
     switch terminal {

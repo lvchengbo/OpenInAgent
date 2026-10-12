@@ -260,15 +260,19 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
 
     let alert = NSAlert()
     alert.alertStyle = .informational
-    alert.messageText = "Configure the Finder toolbar"
+    alert.messageText = "Open in Agent"
     alert.informativeText =
-      "Enable both Finder extensions in System Settings. Then, in Finder, choose View → Customize Toolbar and add Agent and Copy Path. Command-drag the old app shortcut out of the toolbar."
+      "Enable both Finder extensions in System Settings. Then, in Finder, choose View → Customize Toolbar and add Agent and Copy Path.\n\nYou can configure execution modes and CLI flags in ~/.config/openinagent/config.json."
     alert.addButton(withTitle: "Open Extension Settings")
+    alert.addButton(withTitle: "Open Config File")
     alert.addButton(withTitle: "Cancel")
 
     let response = alert.runModal()
     if response == .alertFirstButtonReturn {
       FIFinderSyncController.showExtensionManagementInterface()
+    } else if response == .alertSecondButtonReturn {
+      let fileURL = ConfigStorage.ensureConfigFileExists()
+      NSWorkspace.shared.open(fileURL)
     }
   }
 }

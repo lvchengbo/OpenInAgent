@@ -209,4 +209,50 @@ commit_done=1
 echo "Installed $destination"
 echo "Enabled Finder extension $extension_bundle_id"
 echo "Enabled Finder extension $copy_path_extension_bundle_id"
+
+# Ensure ~/.config/openinagent/config.json is initialized and synced with the extension container
+config_dir="$HOME/.config/openinagent"
+container_support="$HOME/Library/Containers/$extension_bundle_id/Data/Library/Application Support/OpenInAgent"
+mkdir -p "$config_dir"
+mkdir -p "$container_support"
+
+if [[ ! -f "$config_dir/config.json" && ! -f "$container_support/config.json" ]]; then
+  cat <<'EOF' > "$container_support/config.json"
+{
+  "mode": "safe",
+  "agents": {
+    "codex": {
+      "terminal": "iterm",
+      "flags": [
+        "--yolo"
+      ]
+    },
+    "claude": {
+      "terminal": "ghostty",
+      "flags": [
+        "--dangerously-skip-permissions"
+      ]
+    },
+    "grok": {
+      "terminal": "iterm",
+      "flags": [
+        "-y"
+      ]
+    },
+    "agy": {
+      "terminal": "iterm",
+      "flags": [
+        "-y"
+      ]
+    }
+  }
+}
+EOF
+fi
+
+if [[ -f "$container_support/config.json" && ! -e "$config_dir/config.json" ]]; then
+  ln -sf "$container_support/config.json" "$config_dir/config.json"
+fi
+
+echo "Configuration available at $config_dir/config.json"
 echo "Use Finder > View > Customize Toolbar to add Agent and Copy Path."

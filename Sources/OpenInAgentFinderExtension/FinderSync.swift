@@ -39,10 +39,14 @@ final class FinderSync: FIFinderSync {
       return nil
     }
 
+    let config = ConfigStorage.load()
+    let isYolo = (config.mode == .yolo)
+
     let menu = NSMenu(title: toolbarItemName)
     for agent in AgentCatalog.all {
+      let title = isYolo ? "Open in \(agent.displayName) (YOLO)" : "Open in \(agent.displayName)"
       let item = NSMenuItem(
-        title: "Open in \(agent.displayName)",
+        title: title,
         action: action(for: agent.id),
         keyEquivalent: ""
       )
@@ -58,6 +62,36 @@ final class FinderSync: FIFinderSync {
 
       menu.addItem(item)
     }
+
+    menu.addItem(NSMenuItem.separator())
+
+    let safeItem = NSMenuItem(
+      title: "Safe Mode",
+      action: #selector(setSafeMode(_:)),
+      keyEquivalent: ""
+    )
+    safeItem.target = self
+    safeItem.state = isYolo ? .off : .on
+    menu.addItem(safeItem)
+
+    let yoloItem = NSMenuItem(
+      title: "YOLO Mode (Auto-Approve)",
+      action: #selector(setYoloMode(_:)),
+      keyEquivalent: ""
+    )
+    yoloItem.target = self
+    yoloItem.state = isYolo ? .on : .off
+    menu.addItem(yoloItem)
+
+    menu.addItem(NSMenuItem.separator())
+
+    let configItem = NSMenuItem(
+      title: "Open Config File...",
+      action: #selector(openConfigFile(_:)),
+      keyEquivalent: ""
+    )
+    configItem.target = self
+    menu.addItem(configItem)
 
     return menu
   }
@@ -89,6 +123,23 @@ final class FinderSync: FIFinderSync {
 
   @objc private func openInAGY(_ sender: NSMenuItem) {
     openInAgent(.agy)
+  }
+
+  @objc private func setSafeMode(_ sender: NSMenuItem) {
+    var config = ConfigStorage.load()
+    config.mode = .safe
+    try? ConfigStorage.save(config)
+  }
+
+  @objc private func setYoloMode(_ sender: NSMenuItem) {
+    var config = ConfigStorage.load()
+    config.mode = .yolo
+    try? ConfigStorage.save(config)
+  }
+
+  @objc private func openConfigFile(_ sender: NSMenuItem) {
+    let url = ConfigStorage.ensureConfigFileExists()
+    NSWorkspace.shared.open(url)
   }
 
   private func openInAgent(_ agentID: AgentID) {
