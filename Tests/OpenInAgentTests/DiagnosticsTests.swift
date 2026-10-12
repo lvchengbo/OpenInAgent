@@ -56,6 +56,35 @@ final class DiagnosticsTests: XCTestCase {
     )
   }
 
+  func testDiagnosticsChecksConfiguredTerminalInsteadOfDefault() throws {
+    let specification = try XCTUnwrap(AgentCatalog.all.first { $0.id == .claude })
+    let agent = ResolvedAgent(
+      specification: specification,
+      executableURL: URL(fileURLWithPath: "/tmp/claude")
+    )
+    var config = OpenInAgentConfig.default
+    config.agents["claude"]?.terminal = "iterm"
+    let entries = Diagnostics.entries(
+      agents: [agent], config: config,
+      applicationURL: { $0 == .iTerm ? URL(fileURLWithPath: "/Applications/iTerm.app") : nil },
+      meetsMinimumVersion: { $0 == .iTerm }
+    )
+    let entry = try XCTUnwrap(entries.first)
+    XCTAssertTrue(entry.isReady)
+    XCTAssertEqual(
+      entry.description,
+      "Claude: command=/tmp/claude | terminal=iTerm (/Applications/iTerm.app)"
+    )
+
+    let missing = Diagnostics.entries(
+      agents: [agent], config: config,
+      applicationURL: { $0 == .ghostty ? URL(fileURLWithPath: "/Applications/Ghostty.app") : nil },
+      meetsMinimumVersion: { _ in true }
+    )
+    XCTAssertFalse(try XCTUnwrap(missing.first).isReady)
+    XCTAssertTrue(Diagnostics.report(entries: missing).contains("terminal=iTerm (not found)"))
+  }
+
   func testTerminalBelowMinimumVersionIsNotReady() throws {
     let specification = try XCTUnwrap(
       AgentCatalog.all.first { $0.id == .claude }

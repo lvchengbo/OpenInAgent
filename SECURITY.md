@@ -29,7 +29,10 @@ an allowlisted operation and its applicable inputs:
 
 - `openAgent`: one `AgentID` from the fixed Claude/Codex/Grok/AGY enum, with an
   optional validated local file URL; omitting the URL asks the host to read Finder;
-- `copyPath`: no agent or target fields; the host reads Finder and copies the path.
+- `copyPath`: no agent, target, or mode fields; the host reads Finder and copies the path;
+- `openConfigFile`: no agent, target, or mode fields; opens the configuration for editing;
+- `setMode`: only `safe` or `yolo`, with no agent or target; the host saves both
+  configuration copies. The Copy Path endpoint cannot change mode.
 
 The extension then asks LaunchServices to open its containing app with an
 `openinagent://launch/<UUID>` or `openinagent://copy-path/<UUID>` URL. The endpoint
@@ -43,8 +46,8 @@ deletes the claim after reading. It rejects replay, records older than 60
 seconds or more than 5 seconds in the future, records over 16 KiB, symlinks,
 nonregular or non-user-owned files, loose permissions, unknown agents, relative
 or remote file URLs, and nested user information, ports, queries, or fragments.
-Unknown operations, an operation from the wrong endpoint, extra Copy Path
-agent/target fields, and old record versions are also rejected. Invalid tokens
+Unknown operations, an operation from the wrong endpoint, invalid modes,
+inapplicable agent/target/mode fields, and old record versions are also rejected. Invalid tokens
 exit silently so arbitrary callers cannot create alert spam.
 
 macOS gives other sandboxed apps no access to this extension’s container, so
@@ -120,7 +123,7 @@ evaluated; the login shell it launches is what restores the interactive `PATH`.
   `exec "$@"` (or `exec $argv`) with every path carried only as argv
 - terminal `write text` or synthetic keystrokes
 - editable free-form command templates
-- automatic permission-bypass flags
+- permission-bypass flags in Safe mode (YOLO mode is an explicit user choice)
 - Finder preference mutation
 - force-restarting Finder
 - process, shell, or AppleScript execution inside either Finder extension

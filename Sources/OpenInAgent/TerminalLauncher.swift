@@ -228,14 +228,7 @@ enum TerminalLauncher {
     let isYolo = (config.mode == .yolo)
     let agentConfig = config.agents[resolvedAgent.specification.id.rawValue]
 
-    let terminal: TerminalKind
-    if let terminalString = agentConfig?.terminal,
-      let overriddenTerminal = TerminalKind(rawValue: terminalString)
-    {
-      terminal = overriddenTerminal
-    } else {
-      terminal = resolvedAgent.specification.terminal
-    }
+    let terminal = config.terminal(for: resolvedAgent.specification)
 
     guard isTerminalInstalled(terminal) else {
       throw TerminalLauncherError.missingTerminal(terminal.displayName)
@@ -298,11 +291,11 @@ enum TerminalLauncher {
       throw TerminalLauncherError.launchFailed(error.localizedDescription)
     }
 
-    if result.terminationStatus == 0 {
-      return
-    }
     if result.timedOut {
       throw TerminalLauncherError.timedOut(terminal.displayName)
+    }
+    if result.terminationStatus == 0 {
+      return
     }
 
     throw launchError(

@@ -56,4 +56,18 @@ final class ProcessRunnerTests: XCTestCase {
     XCTAssertNotEqual(result.terminationStatus, 0)
     XCTAssertLessThan(Date().timeIntervalSince(startedAt), 2)
   }
+
+  func testDeadlineStillAppliesWhenDescendantKeepsPipesOpen() async throws {
+    let startedAt = ProcessInfo.processInfo.systemUptime
+    let result = try await ProcessRunner.run(
+      executableURL: URL(fileURLWithPath: "/bin/sh"),
+      arguments: ["-c", "/bin/sleep 2 & /usr/bin/printf parent-done"],
+      timeout: 0.1
+    )
+
+    XCTAssertEqual(result.terminationStatus, 0)
+    XCTAssertEqual(result.standardOutput, "parent-done")
+    XCTAssertTrue(result.timedOut)
+    XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - startedAt, 1)
+  }
 }

@@ -10,6 +10,7 @@ final class AgentMenuController: NSObject {
   private let agents: [ResolvedAgent]
   private let workingDirectory: URL
   private let anchorPoint: NSPoint
+  private let config: OpenInAgentConfig
   private var panel: AgentChooserPanel?
   private var globalClickMonitor: Any?
   private var localKeyMonitor: Any?
@@ -19,11 +20,13 @@ final class AgentMenuController: NSObject {
   init(
     agents: [ResolvedAgent],
     workingDirectory: URL,
-    anchorPoint: NSPoint = NSEvent.mouseLocation
+    anchorPoint: NSPoint = NSEvent.mouseLocation,
+    config: OpenInAgentConfig = ConfigStorage.load()
   ) {
     self.agents = agents
     self.workingDirectory = workingDirectory
     self.anchorPoint = anchorPoint
+    self.config = config
   }
 
   func chooseAgent() async -> ResolvedAgent? {
@@ -42,18 +45,18 @@ final class AgentMenuController: NSObject {
 
   func makePanel() -> AgentChooserPanel {
     let choices = agents.enumerated().map { index, agent in
-      AgentChoice(
+      let terminal = config.terminal(for: agent.specification)
+      let terminalAvailable = TerminalLauncher.isTerminalInstalled(terminal)
+      return AgentChoice(
         id: index,
         title: Self.title(
           for: agent,
-          terminalAvailable: TerminalLauncher.isTerminalInstalled(
-            agent.specification.terminal
-          )
+          terminalAvailable: terminalAvailable,
+          terminal: terminal
         ),
         symbolName: agent.specification.symbolName,
         toolTip: agent.executableURL?.path,
-        isAvailable: agent.isInstalled
-          && TerminalLauncher.isTerminalInstalled(agent.specification.terminal)
+        isAvailable: agent.isInstalled && terminalAvailable
       )
     }
 
@@ -133,16 +136,18 @@ final class AgentMenuController: NSObject {
 
   static func title(
     for agent: ResolvedAgent,
-    terminalAvailable: Bool
+    terminalAvailable: Bool,
+    terminal: TerminalKind? = nil
   ) -> String {
+    let terminal = terminal ?? agent.specification.terminal
     if !agent.isInstalled {
       return "\(agent.specification.displayName) — command not found"
     }
     if !terminalAvailable {
       return
-        "\(agent.specification.displayName) — \(agent.specification.terminal.displayName) not found"
+        "\(agent.specification.displayName) — \(terminal.displayName) not found"
     }
-    return "\(agent.specification.displayName) in \(agent.specification.terminal.displayName)"
+    return "\(agent.specification.displayName) in \(terminal.displayName)"
   }
 
   private func showPanel() {

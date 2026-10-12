@@ -82,10 +82,12 @@ struct AgentHandoffStore {
     let action: String
     let agent: String?
     let target: String?
+    let mode: String?
     switch request {
     case .openAgent(let agentID, let targetURL):
       action = "openAgent"
       agent = agentID.rawValue
+      mode = nil
       if let targetURL {
         guard let validated = AgentLaunchRequest.validatedTargetURL(targetURL) else {
           throw AgentHandoffStoreError.invalidRequest
@@ -98,10 +100,17 @@ struct AgentHandoffStore {
       action = "copyPath"
       agent = nil
       target = nil
+      mode = nil
     case .openConfigFile:
       action = "openConfigFile"
       agent = nil
       target = nil
+      mode = nil
+    case .setMode(let launchMode):
+      action = "setMode"
+      agent = nil
+      target = nil
+      mode = launchMode.rawValue
     }
 
     try prepareDirectoryForWriting()
@@ -115,7 +124,8 @@ struct AgentHandoffStore {
         createdAt: clock().timeIntervalSince1970,
         action: action,
         agent: agent,
-        target: target
+        target: target,
+        mode: mode
       )
       let data = try JSONEncoder().encode(record)
       guard data.count <= Self.maximumRecordSize else {
@@ -164,7 +174,7 @@ struct AgentHandoffStore {
     }
 
     switch (endpoint, record.action) {
-    case (.agent, "openAgent"):
+    case (.agent, "openAgent") where record.mode == nil:
       guard let agent = record.agent, let agentID = AgentID(rawValue: agent) else {
         throw AgentHandoffStoreError.invalidRequest
       }
@@ -181,9 +191,16 @@ struct AgentHandoffStore {
         targetURL = nil
       }
       return .openAgent(agentID, targetURL: targetURL)
-    case (.agent, "openConfigFile") where record.agent == nil && record.target == nil:
+    case (.agent, "openConfigFile")
+    where record.agent == nil && record.target == nil && record.mode == nil:
       return .openConfigFile
-    case (.copyPath, "copyPath") where record.agent == nil && record.target == nil:
+    case (.agent, "setMode") where record.agent == nil && record.target == nil:
+      guard let rawMode = record.mode, let mode = AgentLaunchMode(rawValue: rawMode) else {
+        throw AgentHandoffStoreError.invalidRequest
+      }
+      return .setMode(mode)
+    case (.copyPath, "copyPath")
+    where record.agent == nil && record.target == nil && record.mode == nil:
       return .copyPath
     default:
       throw AgentHandoffStoreError.invalidRequest
@@ -431,4 +448,5 @@ private struct Record: Codable {
   let action: String
   let agent: String?
   let target: String?
+  let mode: String?
 }

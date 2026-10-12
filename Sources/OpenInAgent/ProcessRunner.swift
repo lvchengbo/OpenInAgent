@@ -79,7 +79,7 @@ enum ProcessRunner {
     stdoutReader.start(in: readers)
     stderrReader.start(in: readers)
 
-    let state = ProcessWatchdogState(process: process)
+    let state = ProcessWatchdogState(process: process, readers: [stdoutReader, stderrReader])
     let watchdog = DispatchWorkItem {
       state.timeoutIfIncomplete()
     }
@@ -89,9 +89,9 @@ enum ProcessRunner {
     )
 
     process.waitUntilExit()
+    readers.wait()
     state.markCompleted()
     watchdog.cancel()
-    readers.wait()
 
     return ProcessResult(
       terminationStatus: process.terminationStatus,
@@ -106,6 +106,7 @@ private final class PipeReader: @unchecked Sendable {
   private let fileHandle: FileHandle
   private let lock = NSLock()
   private var capturedData = Data()
+  private var stopRequested = false
 
   init(fileHandle: FileHandle) {
     self.fileHandle = fileHandle
@@ -115,10 +116,39 @@ private final class PipeReader: @unchecked Sendable {
     lock.withLock { capturedData }
   }
 
+  func stop() {
+    lock.withLock { stopRequested = true }
+  }
+
   func start(in group: DispatchGroup) {
     group.enter()
     DispatchQueue.global(qos: .userInitiated).async {
-      let data = self.fileHandle.readDataToEndOfFile()
+      var data = Data()
+      var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+      var descriptor = pollfd(
+        fd: self.fileHandle.fileDescriptor,
+        events: Int16(POLLIN | POLLHUP),
+        revents: 0
+      )
+      // EOF can be held open by a descendant after the direct child exits.
+      // Poll in bounded intervals so the watchdog can stop output collection.
+      while !self.lock.withLock({ self.stopRequested }) {
+        let ready = Darwin.poll(&descriptor, 1, 25)
+        if ready < 0 {
+          if errno == EINTR { continue }
+          break
+        }
+        guard ready > 0 else { continue }
+        let count = buffer.withUnsafeMutableBytes { bytes in
+          Darwin.read(descriptor.fd, bytes.baseAddress!, bytes.count)
+        }
+        if count < 0 {
+          if errno == EINTR { continue }
+          break
+        }
+        guard count > 0 else { break }
+        data.append(contentsOf: buffer.prefix(count))
+      }
       self.lock.withLock {
         self.capturedData = data
       }
@@ -129,12 +159,14 @@ private final class PipeReader: @unchecked Sendable {
 
 private final class ProcessWatchdogState: @unchecked Sendable {
   private let process: Process
+  private let readers: [PipeReader]
   private let lock = NSLock()
   private var completed = false
   private var didTimeOut = false
 
-  init(process: Process) {
+  init(process: Process, readers: [PipeReader]) {
     self.process = process
+    self.readers = readers
   }
 
   var timedOut: Bool {
@@ -149,12 +181,14 @@ private final class ProcessWatchdogState: @unchecked Sendable {
 
   func timeoutIfIncomplete() {
     let shouldTerminate = lock.withLock {
-      guard !completed, process.isRunning else { return false }
+      guard !completed else { return false }
       didTimeOut = true
       return true
     }
 
     guard shouldTerminate else { return }
+    for reader in readers { reader.stop() }
+    guard process.isRunning else { return }
     process.terminate()
 
     DispatchQueue.global(qos: .userInitiated).asyncAfter(

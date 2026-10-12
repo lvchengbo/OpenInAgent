@@ -9,7 +9,8 @@ struct AgentLaunchRequest: Equatable, Sendable {
 
   init(agentID: AgentID, targetURL: URL) {
     self.agentID = agentID
-    self.targetURL = targetURL.standardizedFileURL
+    // Keep the original encoding until the common validator has checked it.
+    self.targetURL = targetURL
   }
 
   static func validatedTargetURL(_ url: URL) -> URL? {
@@ -25,6 +26,8 @@ struct AgentLaunchRequest: Equatable, Sendable {
       components.query == nil,
       components.fragment == nil,
       components.path.hasPrefix("/"),
+      !components.path.contains("\0"),
+      !components.percentEncodedPath.contains("%00"),
       components.host == nil || components.host?.isEmpty == true,
       let validatedURL = components.url
     else {

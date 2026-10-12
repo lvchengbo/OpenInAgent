@@ -2,11 +2,6 @@ import AppKit
 import Darwin
 import Foundation
 
-public enum AgentLaunchMode: String, Codable, Sendable, CaseIterable {
-  case safe
-  case yolo
-}
-
 public struct AgentConfig: Codable, Equatable, Sendable {
   public var terminal: String?
   public var flags: [String]?
@@ -30,21 +25,41 @@ public struct OpenInAgentConfig: Codable, Equatable, Sendable {
   }
 
   public static var defaultAgents: [String: AgentConfig] {
-    [
-      "codex": AgentConfig(terminal: "iterm", flags: ["--yolo"]),
-      "claude": AgentConfig(
-        terminal: "ghostty",
-        flags: ["--" + "dangerously" + "-skip-permissions"]
-      ),
-      "grok": AgentConfig(terminal: "iterm", flags: ["-y"]),
-      "agy": AgentConfig(terminal: "iterm", flags: ["-y"]),
-    ]
+    Dictionary(
+      uniqueKeysWithValues: AgentCatalog.all.map { agent in
+        (
+          agent.id.rawValue,
+          AgentConfig(terminal: agent.terminal.rawValue, flags: agent.defaultAutonomousFlags)
+        )
+      }
+    )
   }
 
   public static let `default` = OpenInAgentConfig()
+
+  func terminal(for agent: AgentSpec) -> TerminalKind {
+    guard let name = agents[agent.id.rawValue]?.terminal,
+      let terminal = TerminalKind(rawValue: name.lowercased())
+    else {
+      return agent.terminal
+    }
+    return terminal
+  }
+}
+
+enum ConfigStorageError: LocalizedError {
+  case invalidConfiguration(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidConfiguration(let path):
+      "The configuration at \(path) is invalid. Fix its JSON before trying again."
+    }
+  }
 }
 
 public enum ConfigStorage {
+  static let initializationArgument = "--initialize-config"
   public static func userConfigDirectory(
     homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
   ) -> URL {
@@ -104,29 +119,51 @@ public enum ConfigStorage {
     userConfigFile: URL = userConfigFile,
     containerConfigFile: URL = containerConfigFile()
   ) -> OpenInAgentConfig {
-    if let userData = try? Data(contentsOf: userConfigFile),
-      let userConfig = try? JSONDecoder().decode(OpenInAgentConfig.self, from: userData)
-    {
+    if let userData = try? Data(contentsOf: userConfigFile) {
+      // A readable user file is authoritative. Invalid edits must never revive
+      // an older cached YOLO configuration. Container fallback remains for the
+      // Finder extension, whose sandbox cannot read the user-facing path.
+      guard var userConfig = try? JSONDecoder().decode(OpenInAgentConfig.self, from: userData)
+      else {
+        return .default
+      }
       let isSymlink: Bool = {
         let values = try? userConfigFile.resourceValues(forKeys: [.isSymbolicLinkKey])
         return values?.isSymbolicLink == true
       }()
-      if !isSymlink {
+      if migrateLegacyAutonomousFlags(in: &userConfig) {
+        try? save(
+          userConfig, userConfigFile: userConfigFile, containerConfigFile: containerConfigFile
+        )
+      } else if !isSymlink {
         let containerDir = containerConfigFile.deletingLastPathComponent()
-        if FileManager.default.fileExists(atPath: containerDir.path) {
-          try? userData.write(to: containerConfigFile, options: .atomic)
-        }
+        try? FileManager.default.createDirectory(
+          at: containerDir, withIntermediateDirectories: true)
+        try? userData.write(to: containerConfigFile, options: .atomic)
       }
       return userConfig
     }
 
     if let containerData = try? Data(contentsOf: containerConfigFile),
-      let config = try? JSONDecoder().decode(OpenInAgentConfig.self, from: containerData)
+      var config = try? JSONDecoder().decode(OpenInAgentConfig.self, from: containerData)
     {
+      if migrateLegacyAutonomousFlags(in: &config) {
+        try? save(config, userConfigFile: userConfigFile, containerConfigFile: containerConfigFile)
+      }
       return config
     }
 
     return .default
+  }
+
+  /// Replace only obsolete defaults; preserve custom flags and terminal choices.
+  private static func migrateLegacyAutonomousFlags(in config: inout OpenInAgentConfig) -> Bool {
+    var migrated = false
+    for agent in ["agy", "grok"] where config.agents[agent]?.flags == ["-y"] {
+      config.agents[agent]?.flags = OpenInAgentConfig.defaultAgents[agent]?.flags
+      migrated = true
+    }
+    return migrated
   }
 
   public static func save(
@@ -138,39 +175,53 @@ public enum ConfigStorage {
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     let data = try encoder.encode(config)
 
-    var writeError: Error?
-    var succeeded = false
-
-    let containerDir = containerConfigFile.deletingLastPathComponent()
-    try? FileManager.default.createDirectory(
-      at: containerDir,
-      withIntermediateDirectories: true
-    )
-    do {
-      try data.write(to: containerConfigFile, options: .atomic)
-      succeeded = true
-    } catch {
-      writeError = error
-    }
-
+    let containerTarget = containerConfigFile.resolvingSymlinksInPath()
     let resolvedUserConfig = userConfigFile.resolvingSymlinksInPath()
-    if resolvedUserConfig.standardized.path != containerConfigFile.standardized.path {
-      try? FileManager.default.createDirectory(
-        at: userConfigFile.deletingLastPathComponent(),
+    if resolvedUserConfig.standardized.path != containerTarget.standardized.path {
+      // The host reads this file first. A failed authoritative write must not
+      // change the cached copy or report success that the next load undoes.
+      try FileManager.default.createDirectory(
+        at: resolvedUserConfig.deletingLastPathComponent(),
         withIntermediateDirectories: true
       )
-      do {
-        try data.write(to: resolvedUserConfig, options: .atomic)
-        succeeded = true
-      } catch {
-        if !succeeded {
-          writeError = error
-        }
-      }
+      try data.write(to: resolvedUserConfig, options: .atomic)
     }
 
-    if !succeeded, let writeError {
-      throw writeError
+    try FileManager.default.createDirectory(
+      at: containerTarget.deletingLastPathComponent(), withIntermediateDirectories: true
+    )
+    try data.write(to: containerTarget, options: .atomic)
+  }
+
+  @discardableResult
+  static func setMode(
+    _ mode: AgentLaunchMode,
+    userConfigFile: URL = userConfigFile,
+    containerConfigFile: URL = containerConfigFile()
+  ) throws -> OpenInAgentConfig {
+    // Only the host can update an independent user file outside the sandbox.
+    // Validate first so changing mode never replaces an invalid edit.
+    try ensureConfigFileExists(
+      userConfigFile: userConfigFile, containerConfigFile: containerConfigFile
+    )
+    var config = load(userConfigFile: userConfigFile, containerConfigFile: containerConfigFile)
+    config.mode = mode
+    try save(config, userConfigFile: userConfigFile, containerConfigFile: containerConfigFile)
+    return config
+  }
+
+  @discardableResult
+  static func fileForEditing(
+    userConfigFile: URL = userConfigFile,
+    containerConfigFile: URL = containerConfigFile()
+  ) throws -> URL {
+    do {
+      return try ensureConfigFileExists(
+        userConfigFile: userConfigFile, containerConfigFile: containerConfigFile
+      )
+    } catch ConfigStorageError.invalidConfiguration(let path) {
+      // Opening the original file is how the user repairs malformed JSON.
+      return URL(fileURLWithPath: path)
     }
   }
 
@@ -178,38 +229,58 @@ public enum ConfigStorage {
   public static func ensureConfigFileExists(
     userConfigFile: URL = userConfigFile,
     containerConfigFile: URL = containerConfigFile()
-  ) -> URL {
-    let containerDir = containerConfigFile.deletingLastPathComponent()
-    if !FileManager.default.fileExists(atPath: containerConfigFile.path) {
-      try? FileManager.default.createDirectory(at: containerDir, withIntermediateDirectories: true)
-      let encoder = JSONEncoder()
-      encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-      if let data = try? encoder.encode(OpenInAgentConfig.default) {
-        try? data.write(to: containerConfigFile, options: .atomic)
-      }
-    }
-
+  ) throws -> URL {
+    let fileManager = FileManager.default
     var st = stat()
     let entryExists = lstat(userConfigFile.path, &st) == 0
-    let targetExists = FileManager.default.fileExists(atPath: userConfigFile.path)
-
-    if entryExists && !targetExists {
-      try? FileManager.default.removeItem(at: userConfigFile)
+    let targetExists = fileManager.fileExists(atPath: userConfigFile.path)
+    if entryExists && st.st_mode & S_IFMT == S_IFLNK && !targetExists {
+      try fileManager.removeItem(at: userConfigFile)
     }
 
-    let userConfigDir = userConfigFile.deletingLastPathComponent()
-    if !FileManager.default.fileExists(atPath: userConfigFile.path) {
-      try? FileManager.default.createDirectory(at: userConfigDir, withIntermediateDirectories: true)
-      if FileManager.default.fileExists(atPath: containerConfigFile.path) {
-        try? FileManager.default.createSymbolicLink(
-          at: userConfigFile,
-          withDestinationURL: containerConfigFile
-        )
+    // An existing user file is authoritative even when the container is missing
+    // or stale. Never replace invalid user data with defaults.
+    let sourceFile: URL?
+    if targetExists {
+      sourceFile = userConfigFile
+    } else if fileManager.fileExists(atPath: containerConfigFile.path) {
+      sourceFile = containerConfigFile
+    } else {
+      sourceFile = nil
+    }
+
+    var config = OpenInAgentConfig.default
+    var data: Data
+    if let sourceFile {
+      data = try Data(contentsOf: sourceFile)
+      guard let decoded = try? JSONDecoder().decode(OpenInAgentConfig.self, from: data) else {
+        throw ConfigStorageError.invalidConfiguration(sourceFile.path)
       }
+      config = decoded
+    } else {
+      data = try JSONEncoder().encode(config)
     }
 
-    if !FileManager.default.fileExists(atPath: userConfigFile.path) {
-      try? save(.default, userConfigFile: userConfigFile, containerConfigFile: containerConfigFile)
+    let migrated = migrateLegacyAutonomousFlags(in: &config)
+    if migrated { data = try JSONEncoder().encode(config) }
+    let containerTarget = containerConfigFile.resolvingSymlinksInPath()
+    try fileManager.createDirectory(
+      at: containerTarget.deletingLastPathComponent(), withIntermediateDirectories: true
+    )
+    if (try? Data(contentsOf: containerTarget)) != data {
+      try data.write(to: containerTarget, options: .atomic)
+    }
+
+    if targetExists {
+      if migrated {
+        try data.write(to: userConfigFile.resolvingSymlinksInPath(), options: .atomic)
+      }
+    } else {
+      try fileManager.createDirectory(
+        at: userConfigFile.deletingLastPathComponent(), withIntermediateDirectories: true
+      )
+      try fileManager.createSymbolicLink(
+        at: userConfigFile, withDestinationURL: containerConfigFile)
     }
 
     return userConfigFile

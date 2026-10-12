@@ -126,15 +126,11 @@ final class FinderSync: FIFinderSync {
   }
 
   @objc private func setSafeMode(_ sender: NSMenuItem) {
-    var config = ConfigStorage.load()
-    config.mode = .safe
-    try? ConfigStorage.save(config)
+    ToolbarHandoff.send(.setMode(.safe))
   }
 
   @objc private func setYoloMode(_ sender: NSMenuItem) {
-    var config = ConfigStorage.load()
-    config.mode = .yolo
-    try? ConfigStorage.save(config)
+    ToolbarHandoff.send(.setMode(.yolo))
   }
 
   @objc private func openConfigFile(_ sender: NSMenuItem) {

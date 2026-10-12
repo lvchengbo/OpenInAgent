@@ -46,6 +46,20 @@ installed_component_pids() {
   done < <(/bin/ps -ww -U "$uid" -o pid= -o comm= 2>/dev/null)
 }
 
+register_installed_components() {
+  "$launch_services_register" -f "$destination" >/dev/null 2>&1 || true
+  /usr/bin/pluginkit -a "$extension_path" >/dev/null 2>&1 || true
+  /usr/bin/pluginkit -a "$copy_path_extension_path" >/dev/null 2>&1 || true
+  /usr/bin/pluginkit -e use -i "$extension_bundle_id" >/dev/null 2>&1 || true
+  /usr/bin/pluginkit -e use -i "$copy_path_extension_bundle_id" >/dev/null 2>&1 || true
+}
+
+unregister_installed_components() {
+  /usr/bin/pluginkit -r "$extension_path" >/dev/null 2>&1 || true
+  /usr/bin/pluginkit -r "$copy_path_extension_path" >/dev/null 2>&1 || true
+  "$launch_services_register" -u "$destination" >/dev/null 2>&1 || true
+}
+
 stop_installed_components() {
   # Only this user's processes count, and only those running the installed
   # bundle's own executables (see installed_component_pids): another logged-in
@@ -111,21 +125,25 @@ staged_app="$staging_root/Open in Agent.app"
 
 backup=""
 commit_done=0
+components_stopped=0
+destination_replaced=0
 cleanup() {
-  # Roll back a half-finished upgrade: if the destination was already swapped
-  # for the new (still-unverified) app and we did not reach a clean finish,
-  # remove it and restore the known-good backup, then re-register it. Otherwise
-  # the old app is lost to the backup directory and the Mac is left with no
-  # working install.
-  if [[ "$commit_done" != "1" && -n "$backup" && -e "$backup" ]]; then
-    if [[ -e "$destination" && ! -e "$staged_app" ]]; then
+  # Roll back first installs as well as upgrades, and restore registrations
+  # even if a failure occurred after stopping the old app but before swapping it.
+  if [[ "$commit_done" != "1" ]]; then
+    if [[ "$destination_replaced" == "1" && -e "$destination" ]]; then
+      unregister_installed_components
       rm -rf "$destination" || true
     fi
-    if [[ ! -e "$destination" ]] && mv "$backup" "$destination"; then
-      "$launch_services_register" -f "$destination" >/dev/null 2>&1 || true
-      /usr/bin/pluginkit -a "$extension_path" >/dev/null 2>&1 || true
-      /usr/bin/pluginkit -a "$copy_path_extension_path" >/dev/null 2>&1 || true
-      echo "Restored the previous app from backup after a failed install." >&2
+    if [[ -n "$backup" && -e "$backup" && ! -e "$destination" ]]; then
+      if mv "$backup" "$destination"; then
+        echo "Restored the previous app from backup after a failed install." >&2
+      else
+        echo "ERROR: Could not restore the previous app; backup retained at $backup" >&2
+      fi
+    fi
+    if [[ "$components_stopped" == "1" && -d "$destination" ]]; then
+      register_installed_components
     fi
   fi
   if [[ -d "$staging_root" ]]; then
@@ -133,9 +151,12 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 /usr/bin/ditto "$source_app" "$staged_app"
 verify_bundle "$staged_app"
+components_stopped=1
 stop_installed_components
 
 if [[ -e "$destination" ]]; then
@@ -153,12 +174,10 @@ if [[ -e "$destination" ]]; then
 fi
 
 if ! mv "$staged_app" "$destination"; then
-  if [[ -n "$backup" && -e "$backup" && ! -e "$destination" ]]; then
-    mv "$backup" "$destination"
-  fi
-  echo "ERROR: Could not replace $destination; the previous app was restored." >&2
+  echo "ERROR: Could not replace $destination." >&2
   exit 1
 fi
+destination_replaced=1
 verify_bundle "$destination"
 
 # The staged build is byte-identical to what was just installed. If that copy
@@ -202,6 +221,10 @@ verify_registration \
   "$copy_path_extension_bundle_id" \
   "$copy_path_extension_path"
 
+# Use the same initializer as the host instead of duplicating defaults here.
+# Initialization must succeed before the upgrade is committed.
+"$destination/Contents/MacOS/Open in Agent" --initialize-config
+
 # Every post-swap check passed; keep the new app and stop the rollback trap
 # from restoring the backup on exit.
 commit_done=1
@@ -210,53 +233,5 @@ echo "Installed $destination"
 echo "Enabled Finder extension $extension_bundle_id"
 echo "Enabled Finder extension $copy_path_extension_bundle_id"
 
-# Ensure ~/.config/openinagent/config.json is initialized and synced with the extension container
-config_dir="$HOME/.config/openinagent"
-container_support="$HOME/Library/Containers/$extension_bundle_id/Data/Library/Application Support/OpenInAgent"
-mkdir -p "$config_dir"
-mkdir -p "$container_support"
-
-if [[ ! -f "$config_dir/config.json" && ! -f "$container_support/config.json" ]]; then
-  cat <<'EOF' > "$container_support/config.json"
-{
-  "mode": "safe",
-  "agents": {
-    "codex": {
-      "terminal": "iterm",
-      "flags": [
-        "--yolo"
-      ]
-    },
-    "claude": {
-      "terminal": "ghostty",
-      "flags": [
-        "--dangerously-skip-permissions"
-      ]
-    },
-    "grok": {
-      "terminal": "iterm",
-      "flags": [
-        "-y"
-      ]
-    },
-    "agy": {
-      "terminal": "iterm",
-      "flags": [
-        "-y"
-      ]
-    }
-  }
-}
-EOF
-fi
-
-if [[ -f "$config_dir/config.json" && ! -f "$container_support/config.json" ]]; then
-  cp "$config_dir/config.json" "$container_support/config.json"
-fi
-
-if [[ -f "$container_support/config.json" && ! -f "$config_dir/config.json" ]]; then
-  ln -sf "$container_support/config.json" "$config_dir/config.json"
-fi
-
-echo "Configuration available at $config_dir/config.json"
+echo "Configuration available at $HOME/.config/openinagent/config.json"
 echo "Use Finder > View > Customize Toolbar to add Agent and Copy Path."

@@ -15,6 +15,17 @@ Selecting a folder uses that folder as the working directory. Selecting a file
 or package uses its parent directory. OpenInAgent never silently falls back to
 the home directory.
 
+YOLO mode uses `--dangerously-skip-permissions` for AGY and `--always-approve`
+for Grok. Existing configurations with either agent's obsolete `["-y"]` default
+are updated automatically when loaded; custom flag lists and terminal choices
+are preserved. Terminal overrides accept `ghostty` and `iterm` (including the
+legacy `iTerm` spelling). Launches, the chooser, and diagnostics use those overrides.
+
+Mode changes are saved by the host app so they also persist when an editor
+replaces the user-facing config symlink with a regular file. Save failures are
+reported. Malformed user JSON falls back to Safe mode; Open Config File still
+opens the original file for repair.
+
 ## Why it uses a Finder extension
 
 Command-dragging an application into Finder creates a generic file shortcut.
@@ -76,6 +87,10 @@ embedded Finder extensions with `pluginkit`. On upgrade it stages and verifies
 the complete signed bundle before replacing the canonical install path, cycles
 the running extensions, and rejects duplicate registrations. Backups live
 under `~/Library/Application Support/OpenInAgent/Backups` with a non-app suffix.
+Configuration initialization must also succeed before the upgrade is committed.
+A failed upgrade restores the previous app and its registrations; a failed first
+install removes the uncommitted app. Existing settings are copied to a missing
+container instead of being replaced with defaults, and invalid JSON is reported.
 
 Confirm the installed backend can see all four commands and both terminals
 without opening an agent:
@@ -165,6 +180,7 @@ OpenInAgent.xcodeproj/               Generated Xcode project used for builds
 OpenInAgent.icon/                    Original containing-app icon definition
 scripts/build-app.sh                 App + extensions packaging and signing
 scripts/install.sh                   Stable install and extension registrations
+scripts/test-install.sh              Isolated installer rollback regressions
 scripts/verify.sh                    Full automated verification
 ```
 

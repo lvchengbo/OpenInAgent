@@ -12,7 +12,10 @@ signing_mode="${OPEN_IN_AGENT_SIGNING:-adhoc}"
 bash -n \
   "$repo_root/scripts/build-app.sh" \
   "$repo_root/scripts/install.sh" \
+  "$repo_root/scripts/test-install.sh" \
   "$repo_root/scripts/verify.sh"
+
+bash "$repo_root/scripts/test-install.sh"
 
 command -v xcodegen >/dev/null 2>&1 || {
   echo "ERROR: xcodegen is required. Install it with 'brew install xcodegen'." >&2

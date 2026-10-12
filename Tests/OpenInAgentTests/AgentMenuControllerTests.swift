@@ -10,7 +10,8 @@ final class AgentMenuControllerTests: XCTestCase {
     let controller = AgentMenuController(
       agents: [],
       workingDirectory: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
-      anchorPoint: NSPoint(x: 500, y: 500)
+      anchorPoint: NSPoint(x: 500, y: 500),
+      config: .default
     )
     let panel = controller.makePanel()
     defer { panel.close() }
@@ -72,6 +73,18 @@ final class AgentMenuControllerTests: XCTestCase {
         terminalAvailable: false
       ),
       "Claude — Ghostty not found"
+    )
+    XCTAssertEqual(
+      AgentMenuController.title(
+        for: installedCommand, terminalAvailable: false, terminal: .iTerm
+      ),
+      "Claude — iTerm not found"
+    )
+    XCTAssertEqual(
+      AgentMenuController.title(
+        for: installedCommand, terminalAvailable: true, terminal: .iTerm
+      ),
+      "Claude in iTerm"
     )
   }
 }

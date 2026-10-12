@@ -11,7 +11,7 @@ enum AgentID: String, CaseIterable, Identifiable, Sendable {
 
 enum TerminalKind: String, Sendable {
   case ghostty
-  case iTerm
+  case iTerm = "iterm"
 
   var displayName: String {
     switch self {
@@ -55,10 +55,10 @@ struct AgentSpec: Identifiable, Equatable, Sendable {
     switch id {
     case .codex:
       ["--yolo"]
-    case .claude:
+    case .claude, .agy:
       ["--" + "dangerously" + "-skip-permissions"]
-    case .grok, .agy:
-      ["-y"]
+    case .grok:
+      ["--always-approve"]
     }
   }
 }

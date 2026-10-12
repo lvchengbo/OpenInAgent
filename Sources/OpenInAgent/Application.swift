@@ -10,6 +10,17 @@ private enum OpenInAgentApplication {
     let application = NSApplication.shared
     application.setActivationPolicy(.accessory)
 
+    if CommandLine.arguments.dropFirst().contains(ConfigStorage.initializationArgument) {
+      do {
+        let fileURL = try ConfigStorage.ensureConfigFileExists()
+        print("Configuration: \(fileURL.path)")
+        exit(0)
+      } catch {
+        FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+        exit(1)
+      }
+    }
+
     if Diagnostics.isRequested() {
       let entries = Diagnostics.liveEntries()
       print(Diagnostics.report(entries: entries))
@@ -96,9 +107,18 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
     }
 
     if request == .openConfigFile {
-      let fileURL = ConfigStorage.ensureConfigFileExists()
-      NSWorkspace.shared.open(fileURL)
-      finish(status: 0)
+      finish(status: openConfiguration() ? 0 : 2)
+      return
+    }
+
+    if case .setMode(let mode) = request {
+      do {
+        try ConfigStorage.setMode(mode)
+        finish(status: 0)
+      } catch {
+        presentError(title: "Couldn’t save the launch mode", message: error.localizedDescription)
+        finish(status: 2)
+      }
       return
     }
 
@@ -125,8 +145,7 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
     } else if let launchURL = FinderSelection.urlFromLaunchArguments() {
       finderURL = launchURL
     } else {
-      presentSetup()
-      finish(status: 0)
+      finish(status: presentSetup())
       return
     }
 
@@ -262,7 +281,24 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
     }
   }
 
-  private func presentSetup() {
+  private func openConfiguration() -> Bool {
+    do {
+      let fileURL = try ConfigStorage.fileForEditing()
+      guard NSWorkspace.shared.open(fileURL) else {
+        presentError(
+          title: "Couldn’t open the configuration",
+          message: "Choose an application to open JSON files, then try again."
+        )
+        return false
+      }
+      return true
+    } catch {
+      presentError(title: "Couldn’t open the configuration", message: error.localizedDescription)
+      return false
+    }
+  }
+
+  private func presentSetup() -> Int32 {
     NSApp.activate(ignoringOtherApps: true)
 
     let alert = NSAlert()
@@ -278,8 +314,8 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
     if response == .alertFirstButtonReturn {
       FIFinderSyncController.showExtensionManagementInterface()
     } else if response == .alertSecondButtonReturn {
-      let fileURL = ConfigStorage.ensureConfigFileExists()
-      NSWorkspace.shared.open(fileURL)
+      return openConfiguration() ? 0 : 2
     }
+    return 0
   }
 }

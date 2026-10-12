@@ -41,7 +41,10 @@ final class AgentHandoffStoreTests: XCTestCase {
   }
 
   func testSymlinkDirectoryIsRejectedWithoutChangingItsTarget() throws {
-    for request in [FinderToolbarRequest.openAgent(.codex), .copyPath, .openConfigFile] {
+    for request in [
+      FinderToolbarRequest.openAgent(.codex), .copyPath, .openConfigFile,
+      .setMode(.safe), .setMode(.yolo),
+    ] {
       let fixture = try makeFixture()
       defer { fixture.remove() }
       let outsideURL = fixture.rootURL.appendingPathComponent("unrelated", isDirectory: true)
@@ -83,7 +86,10 @@ final class AgentHandoffStoreTests: XCTestCase {
   }
 
   func testOwnedUnreadableDirectoryIsRepairedAndSupportsRoundTrip() throws {
-    for request in [FinderToolbarRequest.openAgent(.codex), .copyPath, .openConfigFile] {
+    for request in [
+      FinderToolbarRequest.openAgent(.codex), .copyPath, .openConfigFile,
+      .setMode(.safe), .setMode(.yolo),
+    ] {
       let fixture = try makeFixture()
       defer { fixture.remove() }
       try FileManager.default.createDirectory(
@@ -195,6 +201,10 @@ final class AgentHandoffStoreTests: XCTestCase {
     try assertFIFORecordIsRejectedWithoutBlocking(.openConfigFile)
   }
 
+  func testFIFOModeChangeRecordIsRejectedWithoutBlockingAndDeleted() throws {
+    try assertFIFORecordIsRejectedWithoutBlocking(.setMode(.safe))
+  }
+
   func testMalformedOversizedAndRelativeTargetRecordsAreRejected() throws {
     let fixture = try makeFixture()
     defer { fixture.remove() }
@@ -263,6 +273,31 @@ final class AgentHandoffStoreTests: XCTestCase {
     XCTAssertEqual(try fixture.contents(), [])
   }
 
+  func testNULTargetIsRejectedAtCreateAndConsume() throws {
+    let fixture = try makeFixture()
+    defer { fixture.remove() }
+    let activationURL = try fixture.store.create(makeRequest())
+    let recordURL = try XCTUnwrap(try fixture.contents().only)
+    let target = "file:///tmp/project%00suffix"
+    let record: [String: Any] = [
+      "version": 2,
+      "token": activationURL.lastPathComponent,
+      "createdAt": fixture.clock.value.timeIntervalSince1970,
+      "action": "openAgent",
+      "agent": "codex",
+      "target": target,
+    ]
+    try JSONSerialization.data(withJSONObject: record).write(to: recordURL)
+    XCTAssertThrowsError(try fixture.store.consume(activationURL))
+    XCTAssertThrowsError(
+      try fixture.store.create(.openAgent(.codex, targetURL: URL(string: target)!))
+    )
+    XCTAssertThrowsError(
+      try fixture.store.create(AgentLaunchRequest(agentID: .codex, targetURL: URL(string: target)!))
+    )
+    XCTAssertEqual(try fixture.contents(), [])
+  }
+
   func testOpenConfigFileRequestDefersFinderSelectionAndRemainsSingleUse() throws {
     let fixture = try makeFixture()
     defer { fixture.remove() }
@@ -272,6 +307,45 @@ final class AgentHandoffStoreTests: XCTestCase {
     XCTAssertEqual(try fixture.store.consume(url), .openConfigFile)
     XCTAssertThrowsError(try fixture.store.consume(url))
     XCTAssertEqual(try fixture.contents(), [])
+  }
+
+  func testModeChangesRoundTripWithoutTargetAndRemainSingleUse() throws {
+    let fixture = try makeFixture()
+    defer { fixture.remove() }
+    let copyStore = AgentHandoffStore(directoryURL: fixture.directoryURL, endpoint: .copyPath)
+    for mode in AgentLaunchMode.allCases {
+      let url = try fixture.store.create(.setMode(mode))
+      XCTAssertEqual(url.host, "launch")
+      XCTAssertNil(url.query)
+      XCTAssertFalse(url.absoluteString.contains(mode.rawValue))
+      XCTAssertEqual(try fixture.store.consume(url), .setMode(mode))
+      XCTAssertThrowsError(try fixture.store.consume(url))
+      XCTAssertThrowsError(try copyStore.create(.setMode(mode)))
+      XCTAssertEqual(try fixture.contents(), [])
+    }
+  }
+
+  func testInvalidModeChangeFieldsAndModesAreRejected() throws {
+    let fixture = try makeFixture()
+    defer { fixture.remove() }
+    let invalidFields: [[String: Any]] = [
+      ["mode": ""], ["mode": "YOLO"], ["mode": "unknown"], ["mode": NSNull()],
+      ["agent": "codex"], ["target": "file:///tmp"], ["version": 1],
+      ["action": "openAgent", "agent": "codex"], ["action": "openConfigFile"],
+    ]
+    for fields in invalidFields {
+      let url = try fixture.store.create(.setMode(.safe))
+      let recordURL = try XCTUnwrap(try fixture.contents().only)
+      var record: [String: Any] = [
+        "version": 2, "token": url.lastPathComponent,
+        "createdAt": fixture.clock.value.timeIntervalSince1970,
+        "action": "setMode", "mode": "safe",
+      ]
+      record.merge(fields) { _, replacement in replacement }
+      try JSONSerialization.data(withJSONObject: record).write(to: recordURL)
+      XCTAssertThrowsError(try fixture.store.consume(url), "\(fields)")
+      XCTAssertEqual(try fixture.contents(), [])
+    }
   }
 
   func testTamperedOpenConfigFileFieldsAreRejected() throws {

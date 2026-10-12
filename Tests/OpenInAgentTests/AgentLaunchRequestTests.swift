@@ -5,7 +5,7 @@ import XCTest
 
 final class AgentLaunchRequestTests: XCTestCase {
   func testValidatesAdversarialAbsoluteFinderPath() throws {
-    let path = "/tmp/project ? # % ' \" \\ $() `cmd`; &\n组合—🙂"
+    let path = "/tmp/project ? # % %00 ' \" \\ $() `cmd`; &\n组合—🙂"
     let targetURL = URL(fileURLWithPath: path)
 
     XCTAssertEqual(
@@ -22,6 +22,7 @@ final class AgentLaunchRequestTests: XCTestCase {
       "file:///tmp?x=y",
       "file:///tmp#fragment",
       "file://user@/tmp",
+      "file:///tmp/project%00suffix",
     ]
 
     for value in invalidValues {

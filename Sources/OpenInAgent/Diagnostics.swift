@@ -5,6 +5,7 @@ struct DiagnosticEntry: Equatable, Sendable {
   let agent: ResolvedAgent
   let terminalURL: URL?
   var terminalMeetsMinimumVersion = true
+  var configuredTerminal: TerminalKind?
 
   var isReady: Bool {
     agent.executableURL != nil && terminalURL != nil
@@ -14,7 +15,7 @@ struct DiagnosticEntry: Equatable, Sendable {
   var description: String {
     let command = agent.executableURL?.path ?? "not found"
     let terminal = terminalURL?.path ?? "not found"
-    let terminalKind = agent.specification.terminal
+    let terminalKind = configuredTerminal ?? agent.specification.terminal
     var line =
       "\(agent.specification.displayName): command=\(command) | "
       + "terminal=\(terminalKind.displayName) (\(terminal))"
@@ -36,15 +37,29 @@ enum Diagnostics {
 
   @MainActor
   static func liveEntries() -> [DiagnosticEntry] {
-    ExecutableResolver.resolveAll().map { agent in
-      DiagnosticEntry(
+    entries(
+      agents: ExecutableResolver.resolveAll(),
+      config: ConfigStorage.load(),
+      applicationURL: {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.bundleIdentifier)
+      },
+      meetsMinimumVersion: TerminalLauncher.meetsMinimumVersion
+    )
+  }
+
+  static func entries(
+    agents: [ResolvedAgent],
+    config: OpenInAgentConfig,
+    applicationURL: (TerminalKind) -> URL?,
+    meetsMinimumVersion: (TerminalKind) -> Bool
+  ) -> [DiagnosticEntry] {
+    agents.map { agent in
+      let terminal = config.terminal(for: agent.specification)
+      return DiagnosticEntry(
         agent: agent,
-        terminalURL: NSWorkspace.shared.urlForApplication(
-          withBundleIdentifier: agent.specification.terminal.bundleIdentifier
-        ),
-        terminalMeetsMinimumVersion: TerminalLauncher.meetsMinimumVersion(
-          agent.specification.terminal
-        )
+        terminalURL: applicationURL(terminal),
+        terminalMeetsMinimumVersion: meetsMinimumVersion(terminal),
+        configuredTerminal: terminal
       )
     }
   }
