@@ -11,7 +11,7 @@ final class FinderSync: FIFinderSync {
   }
 
   override var toolbarItemName: String {
-    "Open in Agent"
+    "Agent"
   }
 
   override var toolbarItemToolTip: String {

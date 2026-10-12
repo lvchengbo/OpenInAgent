@@ -262,7 +262,7 @@ final class ApplicationCoordinator: NSObject, NSApplicationDelegate {
     alert.alertStyle = .informational
     alert.messageText = "Configure the Finder toolbar"
     alert.informativeText =
-      "Enable both Finder extensions in System Settings. Then, in Finder, choose View → Customize Toolbar and add Open in Agent and Copy Path. Command-drag the old app shortcut out of the toolbar."
+      "Enable both Finder extensions in System Settings. Then, in Finder, choose View → Customize Toolbar and add Agent and Copy Path. Command-drag the old app shortcut out of the toolbar."
     alert.addButton(withTitle: "Open Extension Settings")
     alert.addButton(withTitle: "Cancel")
 

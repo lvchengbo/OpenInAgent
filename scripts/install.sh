@@ -209,4 +209,4 @@ commit_done=1
 echo "Installed $destination"
 echo "Enabled Finder extension $extension_bundle_id"
 echo "Enabled Finder extension $copy_path_extension_bundle_id"
-echo "Use Finder > View > Customize Toolbar to add Open in Agent and Copy Path."
+echo "Use Finder > View > Customize Toolbar to add Agent and Copy Path."
